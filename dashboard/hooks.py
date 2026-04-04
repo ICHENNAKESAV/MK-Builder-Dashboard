@@ -26,7 +26,9 @@ app_license = "mit"
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/dashboard/css/dashboard.css"
-# app_include_js = "/assets/dashboard/js/dashboard.js"
+app_include_js = [
+    "/assets/dashboard/js/echarts.min.js"
+]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/dashboard/css/dashboard.css"
@@ -137,13 +139,20 @@ app_license = "mit"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+# Document Events
+# ---------------
+# Hook on document methods and events
+
+doc_events = {
+#     "*": {
+#         "on_update": "method",
+#         "on_cancel": "method",
+#         "on_trash": "method"
+#     },
+   "Page": { 
+         "after_insert": "dashboard.utils.create_page_py"
+     }
+ }
 
 # Scheduled Tasks
 # ---------------
