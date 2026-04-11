@@ -13,33 +13,18 @@ frappe.pages['hr3'].on_page_load = function(wrapper) {
     // 3. Ensure the body fills the available height
     $(page.body).parent().css('padding', '0px');
 
-    // -------------------------------
-    // SIDEBAR
-    // -------------------------------
-    function renderSidebar(){
-        return `
-        <div style="padding:30px; margin-top:30px;">
+	// Hide full top navbar
+	$('.navbar').hide();
 
-            <div onclick="navigateTo('hr3')" style="padding:10px; cursor:pointer;">
-                HR Dashboard
-            </div>
+	// OR more specific (only container inside navbar)
+	$('.navbar .container').hide();
 
-            <div onclick="navigateTo('crm2')" style="padding:10px; cursor:pointer;">
-                CRM Dashboard
-            </div>
-        </div>
-        `;
-    }
-
+    
     // -------------------------------
     // LAYOUT
     // -------------------------------
     $(page.body).html(`
-        <div style="display:flex; height:100vh; overflow:hidden;">
-
-            <!-- SIDEBAR -->
-            <div id="app-sidebar"></div>
-			<div id="overlay"></div>
+        <div style="display:flex; height:100vh; overflow:hidden;">        
 
             <!-- RIGHT SIDE -->
             <div style="flex:1; display:flex; flex-direction:column;">
@@ -55,12 +40,6 @@ frappe.pages['hr3'].on_page_load = function(wrapper) {
                     z-index:10;
                     flex-shrink:0;
                 ">
-                    <button id="menu-toggle" style="
-                        margin-right:10px;
-                        font-size:18px;
-                        cursor:pointer;
-                    ">☰</button>
-
                     <h3 style="margin:0; font-size:18px;">HR Dashboard</h3>
                 </div>
 
@@ -108,65 +87,8 @@ frappe.pages['hr3'].on_page_load = function(wrapper) {
                 </div>
             </div>
         </div>
-
-        <style>
-			/* SIDEBAR */
-			#app-sidebar{
-				position:fixed;
-				left:-240px;
-				top:0;
-				width:240px;
-				height:100%;
-				z-index:999;
-				background:#2d3748;
-				color:#fff;
-				transition:0.3s;
-			}
-
-			/* OPEN */
-			#app-sidebar.active{
-				left:0;
-			}
-
-			/* OVERLAY */
-			#overlay{
-				position:fixed;
-				top:0;
-				left:0;
-				width:100%;
-				height:100%;
-				background:rgba(0,0,0,0.4);
-				z-index:998;
-				display:none;
-			}
-
-			/* SHOW OVERLAY */
-			#overlay.active{
-				display:block;
-			}
-			</style>
     `);
 
-    // -------------------------------
-    // LOAD SIDEBAR
-    // -------------------------------
-    $('#app-sidebar').html(renderSidebar());
-
-    // -------------------------------
-    // TOGGLE
-    // -------------------------------
-	$(document).off('click','#menu-toggle').on('click','#menu-toggle', function(e){
-    	e.stopPropagation();
-
-		$('#app-sidebar').toggleClass('active');
-		$('#overlay').toggleClass('active');
-	});
-
-		// CLICK OUTSIDE (overlay)
-		$(document).off('click','#overlay').on('click','#overlay', function(){
-			$('#app-sidebar').removeClass('active');
-			$('#overlay').removeClass('active');
-		});
 
     // -------------------------------
     // NAVIGATION FUNCTION

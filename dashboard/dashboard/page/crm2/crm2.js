@@ -19,33 +19,10 @@ frappe.pages['crm2'].on_page_load = function(wrapper) {
 
     
     // -------------------------------
-    // SIDEBAR
-    // -------------------------------
-    function renderSidebar(){
-        return `
-        <div style="padding:20px; margin-top:30px">
-            
-
-            <div onclick="navigateTo('hr3')" style="padding:10px; cursor:pointer;">
-                HR Dashboard
-            </div>
-
-            <div onclick="navigateTo('crm2')" style="padding:10px; cursor:pointer;">
-                CRM Dashboard
-            </div>
-        </div>
-        `;
-    }
-
-    // -------------------------------
     // LAYOUT
     // -------------------------------
     $(page.body).html(`
     <div style="display:flex; height:100vh; overflow:hidden;">
-
-        <!-- SIDEBAR -->
-        <div id="app-sidebar"></div>
-        <div id="overlay"></div>
 
         <!-- RIGHT SIDE -->
         <div style="flex:1; display:flex; flex-direction:column;">
@@ -59,11 +36,6 @@ frappe.pages['crm2'].on_page_load = function(wrapper) {
                 padding:0 20px;
                 box-shadow:0 2px 5px rgba(0,0,0,0.1);
             ">
-                <button id="menu-toggle" style="
-                    margin-right:15px;
-                    font-size:18px;
-                    cursor:pointer;
-                ">☰</button>
 
                 <h3 style="margin:0;">CRM Dashboard</h3>
             </div>
@@ -104,65 +76,7 @@ frappe.pages['crm2'].on_page_load = function(wrapper) {
         </div>
 
     </div>
-    <style>
-    /* SIDEBAR - WORKS ON ALL DEVICES */
-    #app-sidebar{
-        position:fixed;
-        left:-240px;
-        top:0;
-        width:240px;
-        height:100%;
-        z-index:999;
-        background:#1f2937;
-        color:#fff;
-        transition:0.3s;
-    }
-
-        /* OPEN SIDEBAR */
-        #app-sidebar.active{
-            left:0;
-        }
-
-        /* OVERLAY */
-        #overlay{
-            position:fixed;
-            top:0;
-            left:0;
-            width:100%;
-            height:100%;
-            background:rgba(0,0,0,0.4);
-            z-index:998;
-            display:none;
-        }
-
-        /* SHOW OVERLAY */
-        #overlay.active{
-            display:block;
-        }
-        </style>
     `);
-
-    // -------------------------------
-    // LOAD SIDEBAR
-    // -------------------------------
-    $('#app-sidebar').html(renderSidebar());
-
-    // -------------------------------
-    // TOGGLE BUTTON
-    // -------------------------------
-   
-    $(document).off('click','#menu-toggle').on('click','#menu-toggle', function(e){
-        e.stopPropagation();
-
-    $('#app-sidebar').toggleClass('active');
-    $('#overlay').toggleClass('active');
-    });
-
-// CLICK OVERLAY → CLOSE
-    $(document).off('click','#overlay').on('click','#overlay', function(){
-        $('#app-sidebar').removeClass('active');
-        $('#overlay').removeClass('active');
-    });
 
     // -------------------------------
     // NAVIGATION
