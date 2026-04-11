@@ -17,6 +17,12 @@ frappe.pages['crm2'].on_page_load = function(wrapper) {
     // 3. Ensure the body fills the available height
     $(page.body).parent().css('padding', '0px');
 
+    // Hide full top navbar
+	$('.navbar').hide();
+
+	// OR more specific (only container inside navbar)
+	$('.navbar .container').hide();
+
     
     // -------------------------------
     // LAYOUT
