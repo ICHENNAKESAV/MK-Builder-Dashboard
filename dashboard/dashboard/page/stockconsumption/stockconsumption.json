@@ -1,0 +1,19 @@
+{
+ "content": null,
+ "creation": "2026-04-23 15:15:05.856074",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-04-23 15:15:05.856074",
+ "modified_by": "Administrator",
+ "module": "Dashboard",
+ "name": "stockconsumption",
+ "owner": "Administrator",
+ "page_name": "stockconsumption",
+ "roles": [],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "Stock Consumption"
+}
