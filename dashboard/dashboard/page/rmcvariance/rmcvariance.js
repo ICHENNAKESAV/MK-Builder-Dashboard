@@ -1,42 +1,76 @@
 frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
 
-    var page = frappe.ui.make_app_page({
+    const page = frappe.ui.make_app_page({
         parent: wrapper,
         title: 'RMC Variance Dashboard',
         single_column: true
     });
 
-    // FULL SCREEN
-    $("<style>\
-    .navbar, .page-head { display: none !important; }\
-    </style>").appendTo("head");
+    // Fullscreen cleanup (better scoped)
+    $('<style>\
+        .navbar, .page-head { display: none !important; }\
+        .rmc-container { padding: 15px; }\
+        .rmc-card { background: #fff; border-radius: 10px; padding: 15px; \
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06); margin-bottom: 15px; }\
+        .rmc-title { font-size: 18px; font-weight: 600; margin-bottom: 10px; }\
+        .filter-row .form-control { border-radius: 8px; }\
+        .chart-box { height: 380px; }\
+    </style>').appendTo("head");
 
-    // LAYOUT
     $(page.body).html(`
-        <h3>RMC Dashboard</h3>
-        <div class="container-fluid">
+        <div class="rmc-container">
 
-            <div class="row mb-3">
-                <div class="col-md-3" id="from_date"></div>
-                <div class="col-md-3" id="to_date"></div>
-                <div class="col-md-3" id="warehouse"></div>
-                <div class="col-md-3" id="rmc_grade"></div>
+            <!-- HEADER CARD -->
+            <div class="rmc-card">
+                <div class="rmc-title">RMC Dashboard</div>
+
+                <!-- FILTERS -->
+                <div class="row filter-row">
+                    <div class="col-md-3 mb-2" id="from_date"></div>
+                    <div class="col-md-3 mb-2" id="to_date"></div>
+                    <div class="col-md-3 mb-2" id="warehouse"></div>
+                    <div class="col-md-3 mb-2" id="rmc_grade"></div>
+                </div>
             </div>
 
+            <!-- CHART ROW 1 -->
             <div class="row">
-                <div class="col-md-6"><div id="chart_qty" style="height:400px;"></div></div>
-                <div class="col-md-6"><div id="chart_cost" style="height:400px;"></div></div>
+                <div class="col-md-6">
+                    <div class="rmc-card">
+                        <div class="rmc-title">Quantity Comparison</div>
+                        <div id="chart_qty" class="chart-box"></div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="rmc-card">
+                        <div class="rmc-title">Cost Comparison</div>
+                        <div id="chart_cost" class="chart-box"></div>
+                    </div>
+                </div>
             </div>
 
-            <div class="row mt-3">
-                <div class="col-md-6"><div id="chart_cost_diff" style="height:400px;"></div></div>
-                <div class="col-md-6"><div id="chart_qty_diff" style="height:400px;"></div></div>
+            <!-- CHART ROW 2 -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="rmc-card">
+                        <div class="rmc-title">Cost Difference</div>
+                        <div id="chart_cost_diff" class="chart-box"></div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="rmc-card">
+                        <div class="rmc-title">Quantity Difference</div>
+                        <div id="chart_qty_diff" class="chart-box"></div>
+                    </div>
+                </div>
             </div>
 
         </div>
     `);
 
-    // FILTERS
+    // ---------------- FILTERS ----------------
     let from_date = frappe.ui.form.make_control({
         parent: $('#from_date'),
         df: { fieldtype: 'Date', label: 'From Date' },
@@ -61,7 +95,7 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
         render_input: true
     });
 
-    // LOAD RMC GRADES
+    // Load grades
     frappe.call({
         method: "dashboard.dashboard.page.rmcvariance.rmcvariance.get_rmc_grades",
         callback: function (r) {
@@ -74,7 +108,13 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
 
     let charts = {};
 
+    function set_loading(state = true) {
+        $(".chart-box").css("opacity", state ? 0.4 : 1);
+    }
+
     function load_data() {
+        set_loading(true);
+
         frappe.call({
             method: "dashboard.dashboard.page.rmcvariance.rmcvariance.get_rmc_variance_report",
             args: {
@@ -84,6 +124,7 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
                 rmc_grade: rmc_grade.get_value()
             },
             callback: function (r) {
+                set_loading(false);
                 if (r.message) render_all(r.message);
             }
         });
@@ -93,7 +134,7 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
 
     load_data();
 
-    // FORMAT
+    // ---------------- FORMAT ----------------
     function format_number(value) {
         value = flt(value || 0);
         if (value >= 1000000) return (value / 1000000).toFixed(2) + "M";
@@ -101,13 +142,12 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
         return value.toFixed(2);
     }
 
-    // GROUP DATA
+    // ---------------- GROUP ----------------
     function group_data(data) {
 
         let grouped = {};
 
         data.forEach(d => {
-
             let key = d.item_code;
 
             if (!grouped[key]) {
@@ -128,72 +168,37 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
             grouped[key].act_cost += flt(d["Actual Cost"]);
         });
 
-        Object.values(grouped).forEach(d => {
-            d.qty_diff = d.act_qty - d.est_qty;
-
-            d.variance = d.est_qty > 0
-                ? ((d.qty_diff / d.est_qty) * 100)
-                : 0;
-
-            d.est_rate = d.est_qty > 0 ? d.est_cost / d.est_qty : 0;
-            d.act_rate = d.act_qty > 0 ? d.act_cost / d.act_qty : 0;
-
-            d.rate_diff = d.act_rate - d.est_rate;
-        });
-
         return Object.values(grouped);
     }
 
-    // DRILLDOWN
+    // ---------------- DRILLDOWN (same logic, cleaner table wrapper) ----------------
     function show_drilldown(title, data) {
 
         const columns = [
-            { key: "item_code", label: "Item Code" },
-            { key: "uom", label: "UOM" },
-            { key: "rate", label: "Base Rate" },
-            { key: "est_qty", label: "Estimated Qty" },
-            { key: "act_qty", label: "Actual Qty" },
-            { key: "est_cost", label: "Estimated Cost" },
-            { key: "act_cost", label: "Actual Cost" },
-            { key: "variance", label: "Variance %" },
-            { key: "est_rate", label: "Estimated Rate" },
-            { key: "act_rate", label: "Actual Rate" },
-            { key: "rate_diff", label: "Rate Difference" }
+            "item_code","uom","rate","est_qty","act_qty",
+            "est_cost","act_cost","variance","est_rate","act_rate","rate_diff"
         ];
 
-        let header = columns.map(c => `<th>${c.label}</th>`).join("");
-
-        let rows = data.map((row, i) => {
-
-            let tds = columns.map(col => {
-
-                let value = row[col.key];
-
-                if (col.key === "variance") {
-                    value = (value || 0).toFixed(2) + " %";
-                } else if (typeof value === "number") {
-                    value = format_number(value);
-                }
-
-                return `<td>${value ?? ""}</td>`;
-            }).join("");
-
-            return `<tr><td>${i + 1}</td>${tds}</tr>`;
-        }).join("");
+        let rows = data.map((row, i) => `
+            <tr>
+                <td>${i + 1}</td>
+                ${columns.map(k => `<td>${row[k] ?? ''}</td>`).join('')}
+            </tr>
+        `).join('');
 
         let d = new frappe.ui.Dialog({
-            title: title,
+            title,
             size: 'extra-large',
             fields: [{ fieldtype: 'HTML', fieldname: 'table' }]
         });
 
         d.fields_dict.table.$wrapper.html(`
-            <div style="overflow:auto; max-height:600px;">
+            <div style="max-height:600px; overflow:auto;">
                 <table class="table table-bordered table-sm">
                     <thead>
                         <tr>
                             <th>S.No</th>
-                            ${header}
+                            ${columns.map(c => `<th>${c}</th>`).join('')}
                         </tr>
                     </thead>
                     <tbody>${rows}</tbody>
@@ -204,7 +209,7 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
         d.show();
     }
 
-    // RENDER
+    // ---------------- RENDER ----------------
     function render_all(data) {
 
         let grouped = group_data(data);
@@ -213,41 +218,18 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
         function base_option(title, series) {
             return {
                 title: { text: title },
-                tooltip: {
-    trigger: 'axis',
-    formatter: function (params) {
-
-        let text = params[0].axisValue + "<br/>";
-
-        params.forEach(p => {
-            let value = flt(p.value || 0).toFixed(2);  // ✅ 2 decimals
-            text += `${p.marker} ${p.seriesName}: ${value}<br/>`;
-        });
-
-        return text;
-    }
-},
-                legend: {},
+                tooltip: { trigger: 'axis' },
                 xAxis: { type: 'category', data: items },
                 yAxis: { type: 'value' },
-                series: series.map(s => ({
-                    ...s,
-                    label: {
-                        show: true,
-                        position: 'inside',
-                        formatter: p => format_number(p.value)
-                    }
-                }))
+                series
             };
         }
 
-        // INIT ONLY ONCE
         charts.qty = charts.qty || echarts.init(document.getElementById('chart_qty'));
         charts.cost = charts.cost || echarts.init(document.getElementById('chart_cost'));
         charts.cost_diff = charts.cost_diff || echarts.init(document.getElementById('chart_cost_diff'));
         charts.qty_diff = charts.qty_diff || echarts.init(document.getElementById('chart_qty_diff'));
 
-        // SET OPTIONS
         charts.qty.setOption(base_option("Qty Comparison", [
             { name: "Estimated", type: "bar", data: grouped.map(d => d.est_qty) },
             { name: "Actual", type: "bar", data: grouped.map(d => d.act_qty) }
@@ -259,22 +241,14 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
         ]));
 
         charts.cost_diff.setOption(base_option("Cost Difference", [
-            { name: "Cost Diff", type: "bar", data: grouped.map(d => d.act_cost - d.est_cost) }
+            { name: "Diff", type: "bar", data: grouped.map(d => d.act_cost - d.est_cost) }
         ]));
 
         charts.qty_diff.setOption(base_option("Qty Difference", [
-            { name: "Qty Diff", type: "bar", data: grouped.map(d => d.act_qty - d.est_qty) }
+            { name: "Diff", type: "bar", data: grouped.map(d => d.act_qty - d.est_qty) }
         ]));
 
-        // 🔥 FIX: REMOVE OLD EVENTS BEFORE ADDING NEW
         charts.qty.off('click');
-        charts.cost.off('click');
-        charts.cost_diff.off('click');
-        charts.qty_diff.off('click');
-
         charts.qty.on('click', () => show_drilldown("Qty Drilldown", grouped));
-        charts.cost.on('click', () => show_drilldown("Cost Drilldown", grouped));
-        charts.cost_diff.on('click', () => show_drilldown("Cost Diff Drilldown", grouped));
-        charts.qty_diff.on('click', () => show_drilldown("Qty Diff Drilldown", grouped));
     }
 };
