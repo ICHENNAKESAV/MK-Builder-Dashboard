@@ -31,8 +31,7 @@ frappe.pages['stockconsumption'].on_page_load = function(wrapper) {
                 <div id="parent_group"></div>
                 <div id="warehouse"></div>
 
-                <button class="btn btn-primary" id="applyFilters">Apply</button>
-                <button class="btn btn-default" id="resetFilters">Reset</button>
+               
             </div>
 
             <!-- CHARTS -->
@@ -43,6 +42,7 @@ frappe.pages['stockconsumption'].on_page_load = function(wrapper) {
                 <div id="warehouseChart" class="card"></div>
                 <div id="costCenterChart" class="card"></div>
                 <div id="itemPieChart" class="card"></div>
+                <div id="ParentItemchart" class="card"></div>
             </div>
         </div>
     `);
@@ -231,6 +231,18 @@ frappe.pages['stockconsumption'].on_page_load = function(wrapper) {
 
     d.show();
 }
+function applyFilters() {
+
+    filters = {
+        from_date: from_date.get_value(),
+        to_date: to_date.get_value(),
+        item_group: item_group.get_value(),
+        parent_item_group: parent_group.get_value(),
+        warehouse: warehouse.get_value()
+    };
+
+    load_data();
+}
 
     // ================= LOAD DATA =================
     function load_data() {
@@ -396,24 +408,39 @@ frappe.pages['stockconsumption'].on_page_load = function(wrapper) {
         showDrillDown(p.name, currentData.filter(d => (d.Item || "Undefined") === p.name));
     });
 
+    // ================= ParentItem Bar chart =================
+        let pg = groupBy(currentData,"Parent Item Group");
+        let pgkeys = Object.keys(pg);
+
+        charts.pg = echarts.init(document.getElementById("ParentItemchart"));
+        charts.pg.setOption({
+            title:{text:"Parent Item Group"},
+            tooltip:{trigger:"axis"},
+            legend:{data:["Amount","Qty"]},
+            xAxis:{type:"category",data:pgkeys},
+            yAxis:{type:"value"},
+            series:[
+                {name:"Amount",type:"bar",data:pgkeys.map(k=>pg[k].amount)},
+                {name:"Qty",type:"bar",data:pgkeys.map(k=>pg[k].qty)}
+            ]
+        });
+
+        charts.pg.on('click',p=>{
+        showDrillDown(p.name,currentData.filter(d=>d["Parent Item Group"]===p.name));
+    });
+
+
     // resize fix
     window.onresize = () => Object.values(charts).forEach(c => c.resize());
 }
 // ================= FILTER EVENTS =================
-$("#applyFilters").click(() => {
-    filters = {
-        from_date: from_date.get_value(),
-        to_date: to_date.get_value(),
-        item_group: item_group.get_value(),
-        parent_item_group: parent_group.get_value(),
-        warehouse: warehouse.get_value()
-    };
-    load_data();
-});
+// ================= AUTO FILTER EVENTS =================
 
-$("#resetFilters").click(() => {
-    filters = {};
-    load_data();
+[from_date, to_date, item_group, parent_group, warehouse]
+.forEach(f => {
+    f.$input.on("change", () => {
+        applyFilters();
+    });
 });
 
 // initial load
