@@ -51,7 +51,7 @@ def get_purchase_invoices(filters=None):
 
     query = f"""
         SELECT
-            pi.name                    AS purchase_invoice,
+            pi.name                    AS name,
             pi.supplier,
             pi.posting_date,
             pi.due_date,

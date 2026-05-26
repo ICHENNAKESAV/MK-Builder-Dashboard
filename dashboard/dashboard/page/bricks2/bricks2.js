@@ -26,7 +26,8 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         from_date:  null,
         to_date:    null,
         customer:   null,
-        brick_size: null
+        brick_size: null,
+        company: null
     };
 
     $(page.body).html(`
@@ -61,6 +62,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             <select id="customer_filter"><option value="">All Customers</option></select>
             <label>Brick Size</label>
             <select id="brick_filter"><option value="">All Brick Sizes</option></select>
+            <label>Company</label><select id="company_filter"><option value="">All Companies</option></select>
             <button id="clear_filters">✕ Clear</button>
         </div>
 
@@ -101,21 +103,27 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     // FIX 1: _customer_key was MISSING — added here
     function normalize_delivery(rows) {
         return (rows || []).map(d => ({
-            ...d,
-            brick_size:    String(d.brick_size    || "").trim(),
-            customer_name: String(d.customer_name || "").trim(),
-            _brick_key:    normalize_brick(d.brick_size),                          // for brick filter matching
-            _customer_key: String(d.customer_name || "").trim().toLowerCase()      // FIX: was missing before
+        ...d,
+        brick_size:    String(d.brick_size || "").trim(),
+        customer_name: String(d.customer_name || "").trim(),
+        company:       String(d.company || "").trim(),
+
+        _brick_key:    normalize_brick(d.brick_size),
+        _customer_key: String(d.customer_name || "").trim().toLowerCase(),
+        _company_key:  String(d.company || "").trim().toLowerCase()
         }));
     }
 
     function normalize_production(rows) {
-        return (rows || []).map(d => ({
-            ...d,
-            brick_size: String(d.brick_size || "").trim(),
-            _brick_key: normalize_brick(d.brick_size)
-        }));
-    }
+    return (rows || []).map(d => ({
+        ...d,
+        brick_size: String(d.brick_size || "").trim(),
+        company:    String(d.company || "").trim(),
+
+        _brick_key:   normalize_brick(d.brick_size),
+        _company_key: String(d.company || "").trim().toLowerCase()
+    }));
+}
 
     // =========================
     // DRILLDOWN MODAL
@@ -188,7 +196,8 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             if (filters.from_date  && date < filters.from_date)              return false;
             if (filters.to_date    && date > filters.to_date)                return false;
             if (filters.customer   && d._customer_key !== filters.customer)  return false;
-            if (filters.brick_size && d._brick_key    !== filters.brick_size) return false;  // FIX: direct key comparison
+            if (filters.brick_size && d._brick_key    !== filters.brick_size) return false;
+            if (filters.company && d._company_key !== filters.company) return false;  // FIX: direct key comparison
             return true;
         });
     }
@@ -200,6 +209,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             if (filters.from_date && date < filters.from_date)              return false;
             if (filters.to_date   && date > filters.to_date)                return false;
             if (filters.customer  && d._customer_key !== filters.customer)  return false;
+            if (filters.company && d._company_key !== filters.company) return false;
             return true;
         });
     }
@@ -209,6 +219,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             let date = String(d.date || "");
             if (filters.from_date && date < filters.from_date) return false;
             if (filters.to_date   && date > filters.to_date)   return false;
+            if (filters.company && d._company_key !== filters.company)return false;
             return true;
         });
     }
@@ -218,6 +229,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             let date = String(d.date || "");
             if (filters.from_date && date < filters.from_date) return false;
             if (filters.to_date   && date > filters.to_date)   return false;
+            if (filters.company && d._company_key !== filters.company) return false;
             return true;
         });
     }
@@ -235,32 +247,44 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     // LOAD DATA FROM SERVER
     // =========================
     function load_all() {
-        frappe.call({
-            method: "dashboard.dashboard.page.bricks2.bricks2.get_delivery_notes",
-            callback: function(r) {
-                delivery_data = normalize_delivery(r.message);
-                populate_filters();
-                render_customer();
-                render_brick_size();
-            }
-        });
 
-        frappe.call({
-            method: "dashboard.dashboard.page.bricks2.bricks2.get_brick_production",
-            callback: function(r) {
-                production_data = normalize_production(r.message);
-                render_production();
-            }
-        });
+    frappe.call({
+        method: "dashboard.dashboard.page.bricks2.bricks2.get_delivery_notes",
+        callback: function(r) {
 
-        frappe.call({
-            method: "dashboard.dashboard.page.bricks2.bricks2.get_material_consumption",
-            callback: function(r) {
-                material_data = r.message || [];
-                render_material();
-            }
-        });
-    }
+            delivery_data = normalize_delivery(r.message);
+
+            populate_filters();
+
+            render_customer();
+            render_brick_size();
+        }
+    });
+
+    frappe.call({
+        method: "dashboard.dashboard.page.bricks2.bricks2.get_brick_production",
+        callback: function(r) {
+
+            production_data = normalize_production(r.message);
+
+            render_production();
+        }
+    });
+
+    frappe.call({
+        method: "dashboard.dashboard.page.bricks2.bricks2.get_material_consumption",
+        callback: function(r) {
+
+            material_data = (r.message || []).map(d => ({
+                ...d,
+                company: String(d.company || "").trim(),
+                _company_key: String(d.company || "").trim().toLowerCase()
+            }));
+
+            render_material();
+        }
+    });
+}
 
     // =========================
     // POPULATE DROPDOWNS & WIRE FILTER EVENTS
@@ -268,55 +292,110 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     // =========================
     function populate_filters() {
 
-        let customers = [...new Set(delivery_data.map(d => d.customer_name).filter(Boolean))].sort();
-        let bricks    = [...new Set(delivery_data.map(d => d.brick_size).filter(Boolean))].sort();
+    let customers = [...new Set(
+        delivery_data.map(d => d.customer_name).filter(Boolean)
+    )].sort();
 
-        let $cust  = $("#customer_filter");
-        let $brick = $("#brick_filter");
+    let bricks = [...new Set(
+        delivery_data.map(d => d.brick_size).filter(Boolean)
+    )].sort();
 
-        $cust.find("option:not(:first)").remove();
-        $brick.find("option:not(:first)").remove();
+    let companies = [...new Set(
+        delivery_data.map(d => d.company).filter(Boolean)
+    )].sort();
 
-        // Customer: value = lowercase display name (matches _customer_key)
-        customers.forEach(c =>
-            $cust.append(`<option value="${c.toLowerCase()}">${c}</option>`)
-        );
+    let $cust = $("#customer_filter");
+    let $brick = $("#brick_filter");
+    let $company = $("#company_filter");
 
-        // FIX 3: value = normalize_brick(b) — now consistent with _brick_key stored in each row
-        bricks.forEach(b =>
-            $brick.append(`<option value="${normalize_brick(b)}">${b}</option>`)
-        );
+    $cust.find("option:not(:first)").remove();
+    $brick.find("option:not(:first)").remove();
+    $company.find("option:not(:first)").remove();
 
-        // Date filters → re-render all 4 charts
-        $("#from_date, #to_date").off("change").on("change", function() {
+    // Customers
+    customers.forEach(c => {
+        $cust.append(`
+            <option value="${c.toLowerCase()}">${c}</option>
+        `);
+    });
+
+    // Brick sizes
+    bricks.forEach(b => {
+        $brick.append(`
+            <option value="${normalize_brick(b)}">${b}</option>
+        `);
+    });
+
+    // Companies
+    companies.forEach(c => {
+        $company.append(`
+            <option value="${c.toLowerCase()}">${c}</option>
+        `);
+    });
+
+    // Date filters
+    $("#from_date, #to_date")
+        .off("change")
+        .on("change", function() {
+
             filters.from_date = $("#from_date").val() || null;
-            filters.to_date   = $("#to_date").val()   || null;
+            filters.to_date = $("#to_date").val() || null;
+
             render_all();
         });
 
-        // Customer filter → re-render all 4 charts
-        $("#customer_filter").off("change").on("change", function() {
+    // Customer filter
+    $("#customer_filter")
+        .off("change")
+        .on("change", function() {
+
             filters.customer = $(this).val() || null;
+
             render_all();
         });
 
-        // Brick size filter → re-renders ONLY Chart 1 (customer chart)
-        // Chart 2 (brick size) intentionally ignores this filter
-        $("#brick_filter").off("change").on("change", function() {
+    // Brick filter
+    $("#brick_filter")
+        .off("change")
+        .on("change", function() {
+
             filters.brick_size = $(this).val() || null;
-            render_customer();   // only chart 1 respects brick_size filter
+
+            render_customer();
         });
 
-        // Clear all filters
-        $("#clear_filters").off("click").on("click", function() {
-            filters = { from_date: null, to_date: null, customer: null, brick_size: null };
+    // Company filter
+    $("#company_filter")
+        .off("change")
+        .on("change", function() {
+
+            filters.company = $(this).val() || null;
+
+            render_all();
+        });
+
+    // Clear filters
+    $("#clear_filters")
+        .off("click")
+        .on("click", function() {
+
+            filters = {
+                from_date: null,
+                to_date: null,
+                customer: null,
+                brick_size: null,
+                company: null
+            };
+
             $("#from_date").val("");
             $("#to_date").val("");
             $("#customer_filter").val("");
             $("#brick_filter").val("");
+            $("#company_filter").val("");
+
             render_all();
         });
-    }
+}
 
     function format_short_number(value) {
     value = Number(value || 0);
@@ -399,7 +478,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             let filtered = data.filter(d => d._customer_key === nameKey);
             open_drilldown(
                 "Delivery Notes — " + params.name,
-                ["id", "date", "brick_size", "quantity", "rate", "grand_amount"],
+                ["id", "company", "date", "brick_size", "quantity", "rate", "grand_amount"],
                 filtered
             );
         });
@@ -469,7 +548,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             let filtered = data.filter(d => d._brick_key === nameKey);
             open_drilldown(
                 "Brick Size Details — " + params.name,
-                ["customer_name", "date", "brick_size", "quantity", "rate", "grand_amount"],
+                ["customer_name","company", "date", "brick_size", "quantity", "rate", "grand_amount"],
                 filtered
             );
         });
@@ -538,7 +617,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             let filtered = data.filter(d => d._brick_key === nameKey);
             open_drilldown(
                 "Production Details — " + params.name,
-                ["date", "brick_size", "produced_bricks", "total_production_cost"],
+                ["date","company", "brick_size", "produced_bricks", "total_production_cost"],
                 filtered
             );
         });
@@ -592,7 +671,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             let filtered = data.filter(d => (d.raw_material || "Unknown") === params.name);
             open_drilldown(
                 "Material Details — " + params.name,
-                ["date", "raw_material", "quantity"],
+                ["date","company" ,"raw_material", "quantity"],
                 filtered
             );
         });

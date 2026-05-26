@@ -77,9 +77,9 @@ frappe.pages['pinvoice'].on_page_load = function(wrapper) {
         control.refresh();
 
         // FIX: listen on the actual input inside $cell
-        $cell.on('change input', 'input', function() {
-            debounced_load();
-        });
+        control.df.onchange = function () {
+            load_data();
+        };
 
         $filter_wrapper.append($cell);
         return control;
@@ -93,11 +93,7 @@ frappe.pages['pinvoice'].on_page_load = function(wrapper) {
     let ctrl_item_group  = make_filter('Item Group',  'Link', 'Item Group');
     let ctrl_warehouse   = make_filter('Warehouse',   'Link', 'Warehouse');
 
-    let _debounce_timer = null;
-    function debounced_load() {
-        clearTimeout(_debounce_timer);
-        _debounce_timer = setTimeout(load_data, 500);
-    }
+    
 
     // ─── Dashboard skeleton ───────────────────────────────────────────────────
     $(`
@@ -302,11 +298,9 @@ frappe.pages['pinvoice'].on_page_load = function(wrapper) {
             });
         });
 
-        frappe.dom.freeze(__('Loading Dashboard…'));
 
         Promise.all([call_pi, call_items])
             .then(([pi_rows, item_rows]) => {
-                frappe.dom.unfreeze();
                 pi_data   = pi_rows;
                 item_data = item_rows;
 
