@@ -135,3 +135,117 @@ def get_material_consumption(company=None):
     """
 
     return frappe.db.sql(query, values, as_dict=True)
+
+# =========================
+# 📊 PRODUCTION VS SALES SUMMARY
+# =========================
+@frappe.whitelist()
+def get_production_vs_sales(from_date=None, to_date=None, company=None):
+
+    conditions_prod = []
+    conditions_sales = []
+
+    values = {}
+
+    # -------------------------
+    # Date Filters
+    # -------------------------
+    if from_date:
+        conditions_prod.append("bp.date >= %(from_date)s")
+        conditions_sales.append("dn.posting_date >= %(from_date)s")
+        values["from_date"] = from_date
+
+    if to_date:
+        conditions_prod.append("bp.date <= %(to_date)s")
+        conditions_sales.append("dn.posting_date <= %(to_date)s")
+        values["to_date"] = to_date
+
+    # -------------------------
+    # Company Filter
+    # -------------------------
+    if company:
+        conditions_prod.append("LOWER(bp.company) = %(company)s")
+        conditions_sales.append("LOWER(dn.company) = %(company)s")
+        values["company"] = company.lower()
+
+    # -------------------------
+    # WHERE CLAUSE
+    # -------------------------
+    prod_where = ""
+    sales_where = ""
+
+    if conditions_prod:
+        prod_where = " AND " + " AND ".join(conditions_prod)
+
+    if conditions_sales:
+        sales_where = " AND " + " AND ".join(conditions_sales)
+
+    # -------------------------
+    # QUERY
+    # -------------------------
+    query = f"""
+        WITH production AS (
+
+            SELECT
+                bp.company,
+                bp.brick_size AS item_code,
+
+                SUM(bp.produced_bricks) AS total_produced_bricks,
+
+                SUM(bp.total_production_cost) AS total_production_cost
+
+            FROM `tabBrick Production` bp
+
+            WHERE bp.docstatus = 1
+            {prod_where}
+
+            GROUP BY bp.company, bp.brick_size
+        ),
+
+        sales AS (
+
+            SELECT
+                dn.company,
+                dni.item_code AS item_code,
+
+                SUM(dni.qty) AS total_sold_qty,
+
+                SUM(dni.amount) AS total_sales_amount
+
+            FROM `tabDelivery Note` dn
+
+            INNER JOIN `tabDelivery Note Item` dni
+                ON dni.parent = dn.name
+
+            WHERE dn.docstatus = 1
+            {sales_where}
+
+            GROUP BY dn.company, dni.item_code
+        )
+
+        SELECT
+
+            COALESCE(p.item_code, s.item_code) AS item,
+            COALESCE(p.company, s.company) AS company,
+
+            IFNULL(p.total_produced_bricks, 0) AS produced_bricks,
+
+            IFNULL(p.total_production_cost, 0) AS total_production_cost,
+
+            IFNULL(s.total_sales_amount, 0) AS total_sales_amount,
+
+            (
+                IFNULL(s.total_sales_amount, 0)
+                -
+                IFNULL(p.total_production_cost, 0)
+            ) AS balance
+
+        FROM production p
+
+        LEFT JOIN sales s
+            ON p.item_code = s.item_code
+
+        ORDER BY item ASC
+    """
+
+    return frappe.db.sql(query, values, as_dict=True)
