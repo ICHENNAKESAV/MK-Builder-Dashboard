@@ -250,10 +250,11 @@ function open_drilldown(title, filterFn) {
                     <th>Date</th>
                     <th>Grade</th>
                     <th>Warehouse</th>
-                    <th>Qty</th>
-                    <th>Mix Rate</th>
-                    <th>Mix Cost</th>
-                    <th>Raw Cost</th>
+                    <th>Total Qty</th>
+                    <th>Mixing Rate</th>
+                    <th>Total Mixing Cost</th>
+                    <th>Total Raw Material Cost</th>
+                    <th>Total Production Cost</th>
                 </tr>
             </thead>
             <tbody>
@@ -270,6 +271,7 @@ function open_drilldown(title, filterFn) {
                 <td>${d["Mixing Rate"] || 0}</td>
                 <td>${d["Total Mixing Cost"] || 0}</td>
                 <td>${d["Total Raw Material Cost"] || 0}</td>
+                <td>${d["Total Production Cost"] || 0}</td>
             </tr>
         `;
     });
