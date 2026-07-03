@@ -4,17 +4,16 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
         title: 'Interactive Procurement Dashboard',
         single_column: true
     });
-    
-    // Scoped CSS resets
+
     $(wrapper).css('padding', '0px');
     $(wrapper).find('.page-head').hide();
     $(page.body).parent().css('padding', '0px');
 
-    // Build structural dashboard blueprint with Conversion Funnel at the bottom
     $(page.body).html(`
+        <div><h2>Procurement Dashboard</h2></div>
         <div style="padding: 25px; background-color: #f8f9fa; min-height: 100vh; font-family: sans-serif;">
-            
-            <div id="dashboard-filter-bar" style="background: #fff; padding: 15px 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 25px; display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end;"></div>
+
+            <div id="dashboard-filter-bar" style="background: #fff; padding: 18px 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 25px;"></div>
 
             <div class="row" id="kpi-container" style="display: flex; gap: 12px; margin-bottom: 25px; flex-wrap: wrap;"></div>
 
@@ -32,189 +31,311 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
         </div>
     `);
 
-    // Global filters state tracker container
-    let current_filters = {
-        supplier: "",
-        from_date: "",
-        to_date: "",
-        project: "",
-        company: "",
-        item_code: ""
-    };
-
-    // Instantiate Interactive Filter Inputs
-    let fields = [
-        { fieldname: 'company', label: __('Company'), fieldtype: 'Link', options: 'Company' },
-        { fieldname: 'supplier', label: __('Supplier'), fieldtype: 'Link', options: 'Supplier' },
-        { fieldname: 'item_code', label: __('Item'), fieldtype: 'Link', options: 'Item' },
-        { fieldname: 'project', label: __('Project'), fieldtype: 'Link', options: 'Project' },
-        { fieldname: 'from_date', label: __('From Date'), fieldtype: 'Date' },
-        { fieldname: 'to_date', label: __('To Date'), fieldtype: 'Date' }
-    ];
-
-    fields.forEach(f => {
-        let field_wrapper = $(`<div style="flex: 1; min-width: 160px;">
-            <label style="font-size: 12px; color: #7f8c8d; font-weight: 600; margin-bottom: 5px; display:block;">${f.label}</label>
-            <div class="filter-input-${f.fieldname}"></div>
-        </div>`).appendTo('#dashboard-filter-bar');
-
-        frappe.ui.form.make_control({
-            df: {
-                fieldtype: f.fieldtype,
-                fieldname: f.fieldname,
-                options: f.options,
-                only_select: true,
-                change: function() {
-                    current_filters[f.fieldname] = this.get_value() || "";
-                    trigger_dashboard_refresh();
+    if (!$('#procurement-filter-style').length) {
+        $('<style id="procurement-filter-style">')
+            .text(`
+                .pd-filter-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+                .pd-filter-field { flex: 1; min-width: 170px; position: relative; }
+                .pd-filter-field label { font-size: 11px; color: #7f8c8d; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; margin-bottom: 6px; display: block; }
+                .pd-filter-field input[type=date] {
+                    width: 100%; box-sizing: border-box; padding: 8px 30px 8px 10px; font-size: 13px;
+                    border: 1px solid #dde1e6; border-radius: 6px; background: #fbfbfc; color: #2c3e50;
+                    outline: none; transition: border-color .15s, box-shadow .15s;
                 }
-            },
-            parent: field_wrapper.find(`.filter-input-${f.fieldname}`),
-            render_input: true
-        });
-    });
+                .pd-filter-field input[type=date]:focus {
+                    border-color: #1abc9c; box-shadow: 0 0 0 3px rgba(26,188,156,0.15); background: #fff;
+                }
+                .pd-filter-clear {
+                    position: absolute; right: 8px; top: 30px; cursor: pointer; color: #b0b7bd;
+                    font-size: 13px; display: none; user-select: none; z-index: 2;
+                }
+                .pd-filter-field.has-value .pd-filter-clear { display: block; }
+                .pd-filter-field.has-value input[type=date] { border-color: #1abc9c; }
+                .pd-filter-actions { display: flex; gap: 8px; }
+                .pd-btn {
+                    padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 6px; cursor: pointer;
+                    border: 1px solid transparent; transition: opacity .15s;
+                }
+                .pd-btn:hover { opacity: 0.85; }
+                .pd-btn-clear { background: #fff; border-color: #dde1e6; color: #7f8c8d; }
+                .pd-btn-apply { background: #1abc9c; color: #fff; }
+                .kpi-card { flex: 1; min-width: 190px; background: #fff; padding: 15px; border-radius: 8px;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.05); cursor: pointer; transition: transform 0.2s; }
+                .kpi-card .kpi-label { font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: 600; margin-bottom: 6px; }
+                .kpi-card .kpi-value { font-size: 18px; font-weight: bold; color: #2c3e50; }
 
-    // Master operational reload pipeline orchestration method
-    function trigger_dashboard_refresh() {
-        let kpi_data = {
-            total_count: 0, total_qty: 0, total_amount: 0,
-            total_received_qty: 0, total_pending_qty: 0,
-            total_paid_amount: 0, total_balance_to_pay: 0
-        };
+                .pd-ms-control {
+                    width: 100%; box-sizing: border-box; padding: 8px 30px 8px 10px; font-size: 13px;
+                    border: 1px solid #dde1e6; border-radius: 6px; background: #fbfbfc; color: #2c3e50;
+                    cursor: pointer; user-select: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                }
+                .pd-ms-control:after { content: '\\25BE'; float: right; color: #9aa1a6; }
+                .pd-filter-field.has-value .pd-ms-control { border-color: #1abc9c; }
+                .pd-ms-panel {
+                    display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; width: 260px; max-width: 90vw;
+                    background: #fff; border: 1px solid #dde1e6; border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+                    z-index: 50; padding: 8px;
+                }
+                .pd-ms-search {
+                    width: 100%; box-sizing: border-box; padding: 7px 10px; font-size: 12px; margin-bottom: 6px;
+                    border: 1px solid #dde1e6; border-radius: 6px; outline: none;
+                }
+                .pd-ms-search:focus { border-color: #1abc9c; }
+                .pd-ms-options { max-height: 240px; overflow-y: auto; }
+                .pd-ms-option {
+                    display: flex; align-items: center; gap: 8px; padding: 6px 6px; font-size: 12.5px;
+                    color: #2c3e50; border-radius: 4px; cursor: pointer;
+                }
+                .pd-ms-option:hover { background: #f3f4f6; }
+                .pd-ms-option input { margin: 0; }
+                .pd-ms-empty { padding: 10px 6px; font-size: 12px; color: #9aa1a6; text-align: center; }
+                .pd-ms-hint { padding: 6px 6px 0; font-size: 11px; color: #9aa1a6; border-top: 1px solid #f0f1f2; margin-top: 4px; }
+            `)
+            .appendTo('head');
+    }
 
-        let data_waitlist = { 
-            kpis_from_po: false, kpis_from_items: false, kpis_from_pending: false,
-            kpis_from_payments: false, kpis_from_balance: false
-        };
+    const MULTISELECT_FIELDS = [
+        { fieldname: 'company', label: 'Company', plural: 'Companies' },
+        { fieldname: 'supplier', label: 'Supplier', plural: 'Suppliers' },
+        { fieldname: 'item_code', label: 'Item', plural: 'Items' },
+        { fieldname: 'project', label: 'Project', plural: 'Projects' }
+    ];
+    const MAX_VISIBLE_OPTIONS = 20;
 
-        function check_and_render_kpis() {
-            if (data_waitlist.kpis_from_po && data_waitlist.kpis_from_items && 
-                data_waitlist.kpis_from_pending && data_waitlist.kpis_from_payments && data_waitlist.kpis_from_balance) {
-                render_all_kpi_cards(kpi_data);
-            }
+    let current_filters = {
+        supplier: [], from_date: "", to_date: "", project: [], company: [], item_code: []
+    };
+    let filter_options = { companies: [], suppliers: [], projects: [], items: [] };
+    let debounce_handle = null;
+
+    function debounced_refresh() {
+        clearTimeout(debounce_handle);
+        debounce_handle = setTimeout(trigger_dashboard_refresh, 350);
+    }
+
+    function options_for(fieldname) {
+        let map = { company: filter_options.companies, supplier: filter_options.suppliers,
+                    item_code: filter_options.items, project: filter_options.projects };
+        return map[fieldname] || [];
+    }
+
+    function render_ms_options($field, fieldname, term) {
+        let all = options_for(fieldname);
+        let needle = (term || '').toLowerCase();
+        let filtered = needle ? all.filter(v => v.toLowerCase().includes(needle)) : all;
+        let shown = filtered.slice(0, MAX_VISIBLE_OPTIONS);
+        let selected = current_filters[fieldname] || [];
+
+        let $opts = $field.find('.pd-ms-options');
+        if (!shown.length) {
+            $opts.html(`<div class="pd-ms-empty">No matches</div>`);
+        } else {
+            $opts.html(shown.map(v => `
+                <label class="pd-ms-option">
+                    <input type="checkbox" value="${frappe.utils.escape_html(v)}" ${selected.includes(v) ? 'checked' : ''}>
+                    <span>${frappe.utils.escape_html(v)}</span>
+                </label>
+            `).join(''));
         }
 
-        // --- 1. PURCHASE ORDERS METRICS ---
-        frappe.call({
-            method: "dashboard.dashboard.page.procurement.procurement.get_purchase_orders_sql",
-            args: { filters: current_filters },
-            callback: function(r) {
-                if (r.message && r.message.length) {
-                    kpi_data.total_count = r.message.length;
-                    r.message.forEach(po => {
-                        kpi_data.total_qty += flt(po.ordered_qty);
-                        kpi_data.total_amount += flt(po.ordered_amount);
-                    });
+        $field.find('.pd-ms-hint').text(
+            filtered.length > MAX_VISIBLE_OPTIONS
+                ? `Showing ${MAX_VISIBLE_OPTIONS} of ${filtered.length} — refine search to see more`
+                : ''
+        );
+    }
+
+    function update_ms_summary($field, fieldname, plural) {
+        let selected = current_filters[fieldname] || [];
+        let $summary = $field.find('.pd-ms-summary');
+        if (!selected.length) {
+            $summary.text(`All ${plural}`);
+        } else if (selected.length <= 2) {
+            $summary.text(selected.join(', '));
+        } else {
+            $summary.text(`${selected.length} ${plural} selected`);
+        }
+    }
+
+    function build_filter_bar() {
+        let ms_fields_html = MULTISELECT_FIELDS.map(f => `
+            <div class="pd-filter-field pd-multiselect" data-field="${f.fieldname}">
+                <label>${f.label}</label>
+                <div class="pd-ms-control">
+                    <span class="pd-ms-summary">All ${f.plural}</span>
+                </div>
+                <span class="pd-filter-clear">&times;</span>
+                <div class="pd-ms-panel">
+                    <input type="text" class="pd-ms-search" placeholder="Search ${f.label.toLowerCase()}...">
+                    <div class="pd-ms-options"></div>
+                    <div class="pd-ms-hint"></div>
+                </div>
+            </div>
+        `).join('');
+
+        $('#dashboard-filter-bar').html(`
+            <div class="pd-filter-row">
+                ${ms_fields_html}
+                <div class="pd-filter-field" data-field="from_date">
+                    <label>From Date</label>
+                    <input type="date">
+                    <span class="pd-filter-clear">&times;</span>
+                </div>
+                <div class="pd-filter-field" data-field="to_date">
+                    <label>To Date</label>
+                    <input type="date">
+                    <span class="pd-filter-clear">&times;</span>
+                </div>
+                <div class="pd-filter-actions">
+                    <button type="button" class="pd-btn pd-btn-clear" id="pd-clear-all">Clear All</button>
+                    <button type="button" class="pd-btn pd-btn-apply" id="pd-apply">Apply</button>
+                </div>
+            </div>
+        `);
+
+        $('#dashboard-filter-bar .pd-filter-field:not(.pd-multiselect)').each(function () {
+            let $field = $(this);
+            let fieldname = $field.data('field');
+            let $input = $field.find('input');
+
+            $input.on('change', function () {
+                current_filters[fieldname] = $(this).val() || "";
+                $field.toggleClass('has-value', !!current_filters[fieldname]);
+                trigger_dashboard_refresh();
+            });
+
+            $field.find('.pd-filter-clear').on('click', function () {
+                current_filters[fieldname] = "";
+                $input.val("");
+                $field.removeClass('has-value');
+                trigger_dashboard_refresh();
+            });
+        });
+
+        MULTISELECT_FIELDS.forEach(f => {
+            let $field = $(`#dashboard-filter-bar .pd-multiselect[data-field="${f.fieldname}"]`);
+            render_ms_options($field, f.fieldname, '');
+            update_ms_summary($field, f.fieldname, f.plural);
+            $field.toggleClass('has-value', (current_filters[f.fieldname] || []).length > 0);
+
+            $field.find('.pd-ms-control').on('click', function (e) {
+                e.stopPropagation();
+                let $panel = $field.find('.pd-ms-panel');
+                let isOpen = $panel.is(':visible');
+                $('.pd-ms-panel').hide();
+                if (!isOpen) {
+                    $panel.show();
+                    $field.find('.pd-ms-search').val('').focus();
+                    render_ms_options($field, f.fieldname, '');
                 }
-                data_waitlist.kpis_from_po = true;
-                check_and_render_kpis();
+            });
+
+            $field.find('.pd-ms-search').on('click', function (e) { e.stopPropagation(); });
+            $field.find('.pd-ms-search').on('input', function () {
+                render_ms_options($field, f.fieldname, $(this).val());
+            });
+
+            $field.find('.pd-ms-panel').on('click', function (e) { e.stopPropagation(); });
+
+            $field.find('.pd-ms-options').on('change', 'input[type=checkbox]', function () {
+                let val = $(this).val();
+                let selected = (current_filters[f.fieldname] || []).slice();
+                if ($(this).is(':checked')) {
+                    if (!selected.includes(val)) selected.push(val);
+                } else {
+                    selected = selected.filter(v => v !== val);
+                }
+                current_filters[f.fieldname] = selected;
+                update_ms_summary($field, f.fieldname, f.plural);
+                $field.toggleClass('has-value', selected.length > 0);
+                debounced_refresh();
+            });
+
+            $field.find('.pd-filter-clear').on('click', function (e) {
+                e.stopPropagation();
+                current_filters[f.fieldname] = [];
+                $field.removeClass('has-value');
+                update_ms_summary($field, f.fieldname, f.plural);
+                render_ms_options($field, f.fieldname, '');
+                trigger_dashboard_refresh();
+            });
+        });
+
+        $(document).off('click.pd-ms-close').on('click.pd-ms-close', function () {
+            $('.pd-ms-panel').hide();
+        });
+
+        $('#pd-apply').on('click', trigger_dashboard_refresh);
+        $('#pd-clear-all').on('click', function () {
+            current_filters = { supplier: [], from_date: "", to_date: "", project: [], company: [], item_code: [] };
+            build_filter_bar();
+            trigger_dashboard_refresh();
+        });
+    }
+
+    function trigger_dashboard_refresh() {
+        frappe.call({
+            method: "dashboard.dashboard.page.procurement.procurement.get_dashboard_kpis",
+            args: { filters: current_filters },
+            callback: function (r) {
+                render_all_kpi_cards(r.message || {});
             }
         });
 
-        // --- 2. RECEIVED QUANTITIES METRICS ---
         frappe.call({
-            method: "dashboard.dashboard.page.procurement.procurement.get_po_item_status",
+            method: "dashboard.dashboard.page.procurement.procurement.get_pending_items_grouped",
             args: { filters: current_filters },
-            callback: function(r) {
-                if (r.message && r.message.length) {
-                    r.message.forEach(row => { kpi_data.total_received_qty += flt(row.received_qty); });
-                }
-                data_waitlist.kpis_from_items = true;
-                check_and_render_kpis();
+            callback: function (r) {
+                let rows = r.message || [];
+                render_vertical_bar('item-pending-bar', 'Pending Qty by Item',
+                    rows.map(x => x.item_code), rows.map(x => flt(x.pending_qty)),
+                    '#e74c3c', 'Qty', 'get_pending_items_sql');
             }
         });
 
-        // --- 3. PENDING QUANTITIES VARIABLE COLUMN BARS ---
         frappe.call({
-            method: "dashboard.dashboard.page.procurement.procurement.get_pending_items_sql",
+            method: "dashboard.dashboard.page.procurement.procurement.get_balance_to_pay_grouped",
             args: { filters: current_filters },
-            callback: function(r) {
-                let pending_items_map = {};
-                if (r.message && r.message.length) {
-                    r.message.forEach(item => {
-                        kpi_data.total_pending_qty += flt(item.pending_qty);
-                        let code = item.item_code || "Unknown";
-                        pending_items_map[code] = (pending_items_map[code] || 0) + flt(item.pending_qty);
-                    });
-                }
-                data_waitlist.kpis_from_pending = true;
-                check_and_render_kpis();
-
-                let sortedPending = Object.entries(pending_items_map).sort((a, b) => b[1] - a[1]);
-                render_vertical_bar('item-pending-bar', 'Pending Qty by Item', sortedPending.map(x => x[0]), sortedPending.map(x => x[1]), '#e74c3c', 'Qty', 'get_pending_items_sql');
+            callback: function (r) {
+                let rows = r.message || [];
+                render_vertical_bar('item-balance-bar', 'Financial Balance to Pay by Item',
+                    rows.map(x => x.item_code), rows.map(x => flt(x.balance_to_pay)),
+                    '#d35400', 'Val', 'get_balance_to_pay_sql');
             }
         });
 
-        // --- 4. HISTORICAL PAID LEDGER ENTRIES ---
         frappe.call({
-            method: "dashboard.dashboard.page.procurement.procurement.get_invoice_payments_sql",
+            method: "dashboard.dashboard.page.procurement.procurement.get_receipt_status_grouped",
             args: { filters: current_filters },
-            callback: function(r) {
-                if (r.message && r.message.length) {
-                    r.message.forEach(pmt => { kpi_data.total_paid_amount += flt(pmt.paid_amount); });
-                }
-                data_waitlist.kpis_from_payments = true;
-                check_and_render_kpis();
+            callback: function (r) {
+                let rows = r.message || [];
+                let order = ['Not Received', 'Partially Received', 'Fully Received'];
+                let data = order.map(name => ({
+                    name, value: flt((rows.find(x => x.status === name) || {}).count || 0)
+                }));
+                render_donut_chart('receipt-status-donut', 'Items Receipt Status Breakdown', data,
+                    ['#95a5a6', '#f1c40f', '#2ecc71'], 'get_po_receipt_status_sql');
             }
         });
 
-        // --- 5. OUTSTANDING EXPOSURE COLUMN BARS ---
         frappe.call({
-            method: "dashboard.dashboard.page.procurement.procurement.get_balance_to_pay_sql",
+            method: "dashboard.dashboard.page.procurement.procurement.get_invoice_status_grouped",
             args: { filters: current_filters },
-            callback: function(r) {
-                let item_exposure_map = {};
-                if (r.message && r.message.length) {
-                    r.message.forEach(row => {
-                        kpi_data.total_balance_to_pay += flt(row.balance_to_pay);
-                        if (row.items) {
-                            let attached_items = row.items.split(',').map(i => i.trim());
-                            let split_weight = flt(row.balance_to_pay) / (attached_items.length || 1);
-                            attached_items.forEach(item_name => {
-                                if (item_name) item_exposure_map[item_name] = (item_exposure_map[item_name] || 0) + split_weight;
-                            });
-                        }
-                    });
-                }
-                data_waitlist.kpis_from_balance = true;
-                check_and_render_kpis();
-
-                let sortedExposure = Object.entries(item_exposure_map).sort((a, b) => b[1] - a[1]);
-                render_vertical_bar('item-balance-bar', 'Financial Balance to Pay by Item', sortedExposure.map(x => x[0]), sortedExposure.map(x => x[1]), '#d35400', 'Val', 'get_balance_to_pay_sql');
-            }
-        });
-
-        // --- 6. PROCESS REFRESH: RECEIPT STATUS BREAKDOWN DONUT ---
-        frappe.call({
-            method: "dashboard.dashboard.page.procurement.procurement.get_po_receipt_status_sql",
-            args: { filters: current_filters },
-            callback: function(r) {
-                let counts = { 'Not Received': 0, 'Partially Received': 0, 'Fully Received': 0 };
-                if (r.message && r.message.length) {
-                    r.message.forEach(row => { if (counts[row.receipt_status] !== undefined) counts[row.receipt_status]++; });
-                }
-                render_donut_chart('receipt-status-donut', 'Items Receipt Status Breakdown', Object.entries(counts).map(([name, value]) => ({ name, value })), ['#95a5a6', '#f1c40f', '#2ecc71'], 'get_po_receipt_status_sql');
-            }
-        });
-
-        // --- 7. PROCESS REFRESH: INVOICE STATUS BREAKDOWN DONUT ---
-        frappe.call({
-            method: "dashboard.dashboard.page.procurement.procurement.get_po_invoice_status_sql",
-            args: { filters: current_filters },
-            callback: function(r) {
-                let counts = { 'Not Billed': 0, 'Partially Billed': 0, 'Fully Billed': 0 };
-                if (r.message && r.message.length) {
-                    r.message.forEach(row => { if (counts[row.invoice_status] !== undefined) counts[row.invoice_status]++; });
-                }
-                render_donut_chart('invoice-status-donut', 'Items Billing Status Breakdown', Object.entries(counts).map(([name, value]) => ({ name, value })), ['#7f8c8d', '#e67e22', '#3498db'], 'get_po_invoice_status_sql');
+            callback: function (r) {
+                let rows = r.message || [];
+                let order = ['Not Billed', 'Partially Billed', 'Fully Billed'];
+                let data = order.map(name => ({
+                    name, value: flt((rows.find(x => x.status === name) || {}).count || 0)
+                }));
+                render_donut_chart('invoice-status-donut', 'Items Billing Status Breakdown', data,
+                    ['#7f8c8d', '#e67e22', '#3498db'], 'get_po_invoice_status_sql');
             }
         });
     }
 
-    // --- 8. INITIALIZE SYSTEM STATIC GLOBAL CONVERSION FUNNEL ---
     frappe.call({
-        method: "dashboard.dashboard.page.procurement.procurement.get_sum", 
-        callback: function(r) {
+        method: "dashboard.dashboard.page.procurement.procurement.get_sum",
+        callback: function (r) {
             if (!r.message) return;
             render_echart([
                 { name: "Purchase Order", value: r.message.purchase_order || 0 },
@@ -225,18 +346,42 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
         }
     });
 
-    trigger_dashboard_refresh();
+    frappe.call({
+        method: "dashboard.dashboard.page.procurement.procurement.get_filter_options",
+        callback: function (r) {
+            filter_options = r.message || filter_options;
+            build_filter_bar();
+            trigger_dashboard_refresh();
+        }
+    });
 
-    // --- DRILL DOWN POPUP WINDOW GENERATOR ENGINE ---
-    function open_drilldown_dialog(title, method_name, clicked_key, clicked_value) {
-        let temp_filters = Object.assign({}, current_filters);
-        
-        if ((method_name === 'get_pending_items_sql' || method_name === 'get_balance_to_pay_sql') && clicked_key !== "All") {
-            temp_filters['item_code'] = clicked_key;
+    // =====================================================================
+    // FIX 1:  open_drilldown_dialog now accepts metric_type ('qty'|'amount')
+    //         Column header is set dynamically — "Qty" or "Amount"
+    // FIX 2:  Doctype route determined by method_name only, never by
+    //         context_meta — prevents broken links when donut slices
+    //         (which return PO rows) incorrectly routed to PR/PI
+    // =====================================================================
+    function open_drilldown_dialog(title, method_name, clicked_key, context_meta, metric_type) {
+
+        let temp_filters = JSON.parse(JSON.stringify(current_filters));
+        let display_title = "";
+
+        // --- Dynamic Title Construction ---
+        if (clicked_key === "All") {
+            display_title = `${title} Overview`;
+        } else if (context_meta === "Item") {
+            display_title = `${title} Breakdown: Item Code [ ${clicked_key} ]`;
+            temp_filters['item_code'] = [clicked_key];
+        } else {
+            display_title = `${title} Breakdown: Status [ ${clicked_key} ]`;
         }
 
+        // ★ FIX 1: Dynamic column header based on metric type
+        let metric_header = metric_type === 'qty' ? 'Qty' : 'Amount';
+
         let d = new frappe.ui.Dialog({
-            title: clicked_key === "All" ? `${title} Metrics Summary` : `${title} Details : ${clicked_key}`,
+            title: display_title,
             size: 'large',
             no_focus: true
         });
@@ -244,7 +389,7 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
         d.$body.html(`
             <div class="drilldown-loading" style="text-align:center; padding: 40px; color:#7f8c8d;">
                 <i class="fa fa-spinner fa-spin fa-2x" style="margin-bottom: 10px; display: block; color: #1abc9c;"></i>
-                Fetching document records...
+                Fetching detailed matrix tracking...
             </div>
             <div class="drilldown-table-wrapper" style="padding: 10px; max-height: 450px; overflow-y: auto;"></div>
         `);
@@ -253,69 +398,92 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
         frappe.call({
             method: `dashboard.dashboard.page.procurement.procurement.${method_name}`,
             args: { filters: temp_filters },
-            callback: function(res) {
+            callback: function (res) {
                 d.$body.find('.drilldown-loading').remove();
                 let records = res.message || [];
-                
-                if (clicked_key !== "All") {
+
+                // Client-side status filter for donut drilldowns
+                if (clicked_key !== "All" && context_meta === "Status") {
                     if (method_name === 'get_po_receipt_status_sql') {
-                        records = records.filter(x => x.receipt_status === clicked_key);
+                        records = records.filter(x => (x.receipt_status === clicked_key));
                     } else if (method_name === 'get_po_invoice_status_sql') {
-                        records = records.filter(x => x.invoice_status === clicked_key);
+                        records = records.filter(x => (x.invoice_status === clicked_key));
                     }
                 }
 
                 if (!records.length) {
-                    d.$body.find('.drilldown-table-wrapper').html(`<div style="text-align:center; padding: 30px; color: #7f8c8d;">No matching active document tracks found.</div>`);
+                    d.$body.find('.drilldown-table-wrapper').html(
+                        `<div style="text-align:center; padding: 30px; color: #7f8c8d;">No matching active document tracks found.</div>`
+                    );
                     return;
                 }
 
+                // ★ FIX 2: Doctype route driven ONLY by method_name
+                //   get_po_receipt_status_sql / get_po_invoice_status_sql
+                //   return Purchase Order rows, so they must route to purchase-order
+                let doctype_route = 'purchase-order';
+                if (method_name === 'get_purchase_receipts_sql') doctype_route = 'purchase-receipt';
+                if (method_name === 'get_purchase_invoices_sql') doctype_route = 'purchase-invoice';
+
                 let sysCurrency = frappe.boot.sysdefaults.currency;
-                
+
+                // ★ FIX 1 (continued): header now says "Qty" or "Amount"
                 let table_html = `
-                    <table class="table table-bordered table-condensed table-hover" style="font-size: 13px; background:#fff; margin-bottom: 0px;">
+                    <table class="table table-bordered table-condensed table-hover"
+                           style="font-size: 13px; background:#fff; margin-bottom: 0px;">
                         <thead>
                             <tr style="background-color: #f3f4f6; color: #34495e; font-weight: bold;">
                                 <th style="width: 65px; text-align: center;">${__('S.No.')}</th>
-                                <th>${__('Purchase Order Name (Link)')}</th>
+                                <th>${__('Document (Link)')}</th>
                                 <th>${__('Date')}</th>
-                                <th>${__('Item / Breakdown Context')}</th>
-                                <th style="text-align: right;">${__('Value Balance')}</th>
+                                <th>${__('Items / Description')}</th>
+                                <th style="text-align: right;">${__(metric_header)}</th>
                             </tr>
                         </thead>
                         <tbody>
                 `;
 
                 records.forEach((row, idx) => {
-                    let po_name = row.purchase_order || row.po_number || row.name;
+                    let doc_name = row.purchase_order || row.po_number || row.name;
                     let doc_date = row.transaction_date ? frappe.datetime.str_to_user(row.transaction_date) : '-';
                     let item_desc = row.item_code || row.items || '-';
                     let metric_disp = "";
 
+                    // ★ Metric display driven by method + metric_type
                     if (method_name === 'get_pending_items_sql') {
-                        metric_disp = `${format_number(row.pending_qty, null, 2)} Qty Pending`;
+                        // Bar chart → Qty only
+                        metric_disp = format_number(row.pending_qty, null, 2);
+
                     } else if (method_name === 'get_balance_to_pay_sql') {
+                        // Bar chart → Amount only
                         metric_disp = format_currency(row.balance_to_pay, sysCurrency);
+
                     } else if (method_name === 'get_po_receipt_status_sql') {
-                        metric_disp = `${format_number(row.qty || row.ordered_qty || 0, null, 2)} Qty`;
+                        // Donut → Qty only
+                        metric_disp = format_number(row.qty || 0, null, 2);
+
                     } else if (method_name === 'get_po_invoice_status_sql') {
-                        metric_disp = `${format_number(row.qty || row.ordered_qty || 0, null, 2)} Qty`;
+                        // Donut → Qty only
+                        metric_disp = format_number(row.qty || 0, null, 2);
+
                     } else if (method_name === 'get_purchase_orders_sql') {
+                        // KPI → Amount only
                         metric_disp = format_currency(row.ordered_amount || 0, sysCurrency);
-                        item_desc = `Total Ordered Qty: ${format_number(row.ordered_qty || 0, null, 2)}`;
-                    } else if (method_name === 'get_po_item_status') {
-                        metric_disp = `${format_number(row.received_qty || 0, null, 2)} Qty Received`;
-                    } else if (method_name === 'get_invoice_payments_sql') {
-                        metric_disp = format_currency(row.paid_amount || 0, sysCurrency);
-                        po_name = row.parent || po_name;
+                        item_desc = `Ordered Qty: ${format_number(row.ordered_qty || 0, null, 2)}`;
+
+                    } else if (method_name === 'get_purchase_receipts_sql' || method_name === 'get_purchase_invoices_sql') {
+                        // KPI → Amount only
+                        metric_disp = format_currency(row.ordered_amount || 0, sysCurrency);
+                        item_desc = row.items ? row.items : 'No items listed';
                     }
 
                     table_html += `
                         <tr>
                             <td style="text-align: center; font-weight: 600; color: #7f8c8d;">${idx + 1}</td>
                             <td>
-                                <a href="/app/purchase-order/${po_name}" target="_blank" style="font-weight:bold; color:#1abc9c; text-decoration: underline; display: inline-block;">
-                                    <i class="fa fa-external-link" style="font-size: 11px; margin-right: 4px;"></i>${po_name}
+                                <a href="/app/${doctype_route}/${doc_name}" target="_blank"
+                                   style="font-weight:bold; color:#1abc9c; text-decoration: underline; display: inline-block;">
+                                    <i class="fa fa-external-link" style="font-size: 11px; margin-right: 4px;"></i>${doc_name}
                                 </a>
                             </td>
                             <td>${doc_date}</td>
@@ -331,53 +499,43 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
         });
     }
 
-    // --- KPI CARDS RENDERER WITH INTERACTIVE CLICK ROUTERS ---
+    // --- KPI CARDS — all drilldowns pass metric_type='amount' ---------------
     function render_all_kpi_cards(data) {
         let sysCurrency = frappe.boot.sysdefaults.currency;
         $('#kpi-container').html(`
-            <div class="kpi-card" data-method="get_purchase_orders_sql" data-title="Total Purchase Orders" style="flex: 1; min-width: 140px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-left: 5px solid #2980b9; cursor: pointer; transition: transform 0.2s;">
-                <div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: 600; margin-bottom: 6px;">Total Count</div>
-                <div style="font-size: 18px; font-weight: bold; color: #2c3e50;">${data.total_count}</div>
+            <div class="kpi-card" data-method="get_purchase_orders_sql" data-title="Total Purchase Orders" style="border-left: 5px solid #2980b9;">
+                <div class="kpi-label">Total Count</div>
+                <div class="kpi-value">${data.total_count || 0}</div>
             </div>
-            <div class="kpi-card" data-method="get_purchase_orders_sql" data-title="Total Ordered Qty" style="flex: 1; min-width: 140px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-left: 5px solid #27ae60; cursor: pointer; transition: transform 0.2s;">
-                <div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: 600; margin-bottom: 6px;">Total Ordered Qty</div>
-                <div style="font-size: 18px; font-weight: bold; color: #2c3e50;">${format_number(data.total_qty, null, 2)}</div>
+            <div class="kpi-card" data-method="get_purchase_orders_sql" data-title="Purchase Order Grand Amount" style="border-left: 5px solid #f39c12;">
+                <div class="kpi-label">PO Grand Amount</div>
+                <div class="kpi-value">${format_currency(data.total_po_amount || 0, sysCurrency)}</div>
             </div>
-            <div class="kpi-card" data-method="get_purchase_orders_sql" data-title="Total Grand Amount" style="flex: 1; min-width: 140px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-left: 5px solid #f39c12; cursor: pointer; transition: transform 0.2s;">
-                <div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: 600; margin-bottom: 6px;">Total Grand Amount</div>
-                <div style="font-size: 18px; font-weight: bold; color: #2c3e50;">${format_currency(data.total_amount, sysCurrency)}</div>
+            <div class="kpi-card" data-method="get_purchase_receipts_sql" data-title="Purchase Receipt Grand Amount" style="border-left: 5px solid #27ae60;">
+                <div class="kpi-label">PR Grand Amount</div>
+                <div class="kpi-value">${format_currency(data.total_pr_amount || 0, sysCurrency)}</div>
             </div>
-            <div class="kpi-card" data-method="get_po_item_status" data-title="Total Received Qty" style="flex: 1; min-width: 140px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-left: 5px solid #8e44ad; cursor: pointer; transition: transform 0.2s;">
-                <div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: 600; margin-bottom: 6px;">Total Received Qty</div>
-                <div style="font-size: 18px; font-weight: bold; color: #2c3e50;">${format_number(data.total_received_qty, null, 2)}</div>
-            </div>
-            <div class="kpi-card" data-method="get_pending_items_sql" data-title="Pending Qty" style="flex: 1; min-width: 140px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-left: 5px solid #e74c3c; cursor: pointer; transition: transform 0.2s;">
-                <div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: 600; margin-bottom: 6px;">Pending Qty</div>
-                <div style="font-size: 18px; font-weight: bold; color: #e74c3c;">${format_number(data.total_pending_qty, null, 2)}</div>
-            </div>
-            <div class="kpi-card" data-method="get_invoice_payments_sql" data-title="Paid Amount" style="flex: 1; min-width: 140px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-left: 5px solid #1abc9c; cursor: pointer; transition: transform 0.2s;">
-                <div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: 600; margin-bottom: 6px;">Paid Amount</div>
-                <div style="font-size: 18px; font-weight: bold; color: #1abc9c;">${format_currency(data.total_paid_amount, sysCurrency)}</div>
-            </div>
-            <div class="kpi-card" data-method="get_balance_to_pay_sql" data-title="Balance to Pay" style="flex: 1; min-width: 140px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border-left: 5px solid #d35400; cursor: pointer; transition: transform 0.2s;">
-                <div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase; font-weight: 600; margin-bottom: 6px;">Balance to Pay</div>
-                <div style="font-size: 18px; font-weight: bold; color: #d35400;">${format_currency(data.total_balance_to_pay, sysCurrency)}</div>
+            <div class="kpi-card" data-method="get_purchase_invoices_sql" data-title="Purchase Invoice Grand Amount" style="border-left: 5px solid #8e44ad;">
+                <div class="kpi-label">PI Grand Amount</div>
+                <div class="kpi-value">${format_currency(data.total_pi_amount || 0, sysCurrency)}</div>
             </div>
         `);
 
-        // Add hovering micro-effects and attach standard global summary drilldowns
         $('.kpi-card').hover(
-            function() { $(this).css('transform', 'translateY(-2px)'); },
-            function() { $(this).css('transform', 'translateY(0px)'); }
+            function () { $(this).css('transform', 'translateY(-2px)'); },
+            function () { $(this).css('transform', 'translateY(0px)'); }
         );
 
-        $('.kpi-card').off('click').on('click', function() {
+        // ★ KPI clicks → metric_type='amount'
+        $('.kpi-card').off('click').on('click', function () {
             let method = $(this).data('method');
             let title = $(this).data('title');
-            open_drilldown_dialog(title, method, "All", null);
+            let doctype = $(this).data('doctype');
+            open_drilldown_dialog(title, method, "All", doctype, 'amount');
         });
     }
 
+    // --- BAR CHARTS ---------------------------------------------------------
     function render_vertical_bar(elementId, title, categories, values, color, mode, targetMethod) {
         let chartDom = document.getElementById(elementId);
         if (!chartDom) return;
@@ -385,9 +543,9 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
         let option = {
             title: { text: title, left: 'left', textStyle: { fontSize: 14, color: '#34495e' } },
             tooltip: {
-                trigger: 'axis', 
+                trigger: 'axis',
                 axisPointer: { type: 'shadow' },
-                formatter: p => `${p[0].name}: <b>${(mode==='Val') ? format_currency(p[0].value, frappe.boot.sysdefaults.currency) : format_number(p[0].value, null, 2)}</b>`
+                formatter: p => `${p[0].name}: <b>${(mode === 'Val') ? format_currency(p[0].value, frappe.boot.sysdefaults.currency) : format_number(p[0].value, null, 2)}</b>`
             },
             dataZoom: [
                 { type: 'slider', show: true, start: 0, end: Math.min(100, Math.max(10, (10 / (categories.length || 1)) * 100)), bottom: 10 },
@@ -398,18 +556,21 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
             yAxis: { type: 'value', splitLine: { lineStyle: { type: 'dashed' } } },
             series: [{ type: 'bar', data: values, itemStyle: { color: color, borderRadius: [4, 4, 0, 0] }, barMaxWidth: 30 }]
         };
-        myChart.setOption(option, true); 
+        myChart.setOption(option, true);
 
         myChart.off('click');
-        myChart.on('click', function(params) {
-            if(params.name) {
-                open_drilldown_dialog(title, targetMethod, params.name, params.value);
+        myChart.on('click', function (params) {
+            if (params.name) {
+                // ★ Bar click → 'qty' for Pending Qty, 'amount' for Balance to Pay
+                let metric_type = (mode === 'Val') ? 'amount' : 'qty';
+                open_drilldown_dialog(title, targetMethod, params.name, 'Item', metric_type);
             }
         });
 
         window.addEventListener('resize', () => myChart.resize());
     }
 
+    // --- DONUT CHARTS -------------------------------------------------------
     function render_donut_chart(elementId, title, data, colorPalette, targetMethod) {
         let chartDom = document.getElementById(elementId);
         if (!chartDom) return;
@@ -429,15 +590,17 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
         myChart.setOption(option, true);
 
         myChart.off('click');
-        myChart.on('click', function(params) {
-            if(params.name) {
-                open_drilldown_dialog(title, targetMethod, params.name, params.value);
+        myChart.on('click', function (params) {
+            if (params.name) {
+                // ★ Donut click → context_meta='Status', metric_type='qty'
+                open_drilldown_dialog(title, targetMethod, params.name, 'Status', 'qty');
             }
         });
 
         window.addEventListener('resize', () => myChart.resize());
     }
 
+    // --- FUNNEL -------------------------------------------------------------
     function render_echart(data) {
         let chartDom = document.getElementById('procurement-funnel');
         if (!chartDom) return;
@@ -448,7 +611,7 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
             legend: { orient: 'horizontal', bottom: '0%', left: 'center', data: ['Purchase Order', 'Purchase Receipt', 'Purchase Invoice', 'Payment Entry'] },
             series: [{
                 name: 'Procurement Stage', type: 'funnel', left: '25%', top: 60, bottom: 80, width: '50%',
-                min: 0, minSize: '0%', maxSize: '100%', sort: 'descending', gap: 4, 
+                min: 0, minSize: '0%', maxSize: '100%', sort: 'descending', gap: 4,
                 label: { show: true, position: 'inside', formatter: p => `${p.name}\n(${format_currency(p.value, frappe.boot.sysdefaults.currency)})` },
                 itemStyle: { borderColor: '#fff', borderWidth: 2 },
                 data: data
