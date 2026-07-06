@@ -94,19 +94,72 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
             .appendTo('head');
     }
 
+    // ★ CHANGE: item_code filter replaced with item_group filter throughout.
     const MULTISELECT_FIELDS = [
         { fieldname: 'company', label: 'Company', plural: 'Companies' },
         { fieldname: 'supplier', label: 'Supplier', plural: 'Suppliers' },
-        { fieldname: 'item_code', label: 'Item', plural: 'Items' },
+        { fieldname: 'item_group', label: 'Item Group', plural: 'Item Groups' },
         { fieldname: 'project', label: 'Project', plural: 'Projects' }
     ];
     const MAX_VISIBLE_OPTIONS = 20;
 
     let current_filters = {
-        supplier: [], from_date: "", to_date: "", project: [], company: [], item_code: []
+        supplier: [], from_date: "", to_date: "", project: [], company: [], item_group: []
     };
-    let filter_options = { companies: [], suppliers: [], projects: [], items: [] };
+    let filter_options = { companies: [], suppliers: [], projects: [], item_groups: [] };
     let debounce_handle = null;
+
+    // ★ BUG FIX: previously every render_vertical_bar / render_donut_chart /
+    // render_echart call added a brand-new `window.addEventListener('resize', ...)`
+    // without ever removing the old one. After a handful of filter refreshes
+    // there were several stale resize listeners stacked up, some pointing at
+    // already-replaced chart instances. Charts are now tracked in a registry
+    // and resized via a single, permanently-bound resize handler.
+    let chart_instances = {};
+    // ★ FIX: In ECharts v5, echarts.init() on a DOM node that already has an
+    // instance returns the SAME existing instance, not a new one. The old
+    // register_chart pattern was:
+    //   1. echarts.init(dom)       → returns existing chart_A
+    //   2. register_chart(id, ...) → disposes chart_A  (kills the chart we just got!)
+    //   3. myChart.setOption(...)  → runs on a disposed instance → blank chart
+    //
+    // init_chart corrects the order: dispose first, then init, guaranteeing
+    // setOption always runs on a live, freshly-initialised instance.
+    function init_chart(elementId) {
+        let chartDom = document.getElementById(elementId);
+        if (!chartDom) return null;
+        let existing = echarts.getInstanceByDom(chartDom);
+        if (existing && !existing.isDisposed()) existing.dispose();
+        delete chart_instances[elementId];
+        let instance = echarts.init(chartDom);
+        chart_instances[elementId] = instance;
+        return instance;
+    }
+    $(window).off('resize.pd-charts').on('resize.pd-charts', function () {
+        Object.values(chart_instances).forEach(function (c) {
+            if (c && !c.isDisposed()) c.resize();
+        });
+    });
+
+    // ★ FIX JS-1: Safe wrappers for format_currency / format_number.
+    // Bare globals are not reliably present across all Frappe versions;
+    // frappe.utils.fmt_money and frappe.utils.formatNumber are the stable API.
+    function fmt_currency(value, currency) {
+        try {
+            return frappe.utils.fmt_money(value, {
+                currency: currency || (frappe.boot.sysdefaults && frappe.boot.sysdefaults.currency)
+            });
+        } catch (e) {
+            return parseFloat(value || 0).toFixed(2);
+        }
+    }
+    function fmt_number(value, decimals) {
+        try {
+            return frappe.utils.formatNumber(value, null, decimals != null ? decimals : 2);
+        } catch (e) {
+            return parseFloat(value || 0).toFixed(decimals != null ? decimals : 2);
+        }
+    }
 
     function debounced_refresh() {
         clearTimeout(debounce_handle);
@@ -115,7 +168,7 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
 
     function options_for(fieldname) {
         let map = { company: filter_options.companies, supplier: filter_options.suppliers,
-                    item_code: filter_options.items, project: filter_options.projects };
+                    item_group: filter_options.item_groups, project: filter_options.projects };
         return map[fieldname] || [];
     }
 
@@ -267,7 +320,7 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
 
         $('#pd-apply').on('click', trigger_dashboard_refresh);
         $('#pd-clear-all').on('click', function () {
-            current_filters = { supplier: [], from_date: "", to_date: "", project: [], company: [], item_code: [] };
+            current_filters = { supplier: [], from_date: "", to_date: "", project: [], company: [], item_group: [] };
             build_filter_bar();
             trigger_dashboard_refresh();
         });
@@ -287,8 +340,8 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
             args: { filters: current_filters },
             callback: function (r) {
                 let rows = r.message || [];
-                render_vertical_bar('item-pending-bar', 'Pending Qty by Item',
-                    rows.map(x => x.item_code), rows.map(x => flt(x.pending_qty)),
+                render_vertical_bar('item-pending-bar', 'Pending Qty by Item Group',
+                    rows.map(x => x.item_group), rows.map(x => flt(x.pending_qty)),
                     '#e74c3c', 'Qty', 'get_pending_items_sql');
             }
         });
@@ -298,8 +351,8 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
             args: { filters: current_filters },
             callback: function (r) {
                 let rows = r.message || [];
-                render_vertical_bar('item-balance-bar', 'Financial Balance to Pay by Item',
-                    rows.map(x => x.item_code), rows.map(x => flt(x.balance_to_pay)),
+                render_vertical_bar('item-balance-bar', 'Financial Balance to Pay by Item Group',
+                    rows.map(x => x.item_group), rows.map(x => flt(x.balance_to_pay)),
                     '#d35400', 'Val', 'get_balance_to_pay_sql');
             }
         });
@@ -361,6 +414,7 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
     // FIX 2:  Doctype route determined by method_name only, never by
     //         context_meta — prevents broken links when donut slices
     //         (which return PO rows) incorrectly routed to PR/PI
+    // FIX 3:  Bar-chart drilldowns now key off item_group, not item_code
     // =====================================================================
     function open_drilldown_dialog(title, method_name, clicked_key, context_meta, metric_type) {
 
@@ -370,15 +424,16 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
         // --- Dynamic Title Construction ---
         if (clicked_key === "All") {
             display_title = `${title} Overview`;
-        } else if (context_meta === "Item") {
-            display_title = `${title} Breakdown: Item Code [ ${clicked_key} ]`;
-            temp_filters['item_code'] = [clicked_key];
+        } else if (context_meta === "Item Group") {
+            display_title = `${title} Breakdown: Item Group [ ${clicked_key} ]`;
+            temp_filters['item_group'] = [clicked_key];
         } else {
             display_title = `${title} Breakdown: Status [ ${clicked_key} ]`;
         }
 
         // ★ FIX 1: Dynamic column header based on metric type
-        let metric_header = metric_type === 'qty' ? 'Qty' : 'Amount';
+        // ★ FIX JS-2: 'count' metric type → header shows ordered qty
+        let metric_header = metric_type === 'qty' ? 'Qty' : metric_type === 'count' ? 'Ordered Qty' : 'Amount';
 
         let d = new frappe.ui.Dialog({
             title: display_title,
@@ -395,21 +450,24 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
         `);
         d.show();
 
+        // ★ FIX: status is now passed as a real SQL filter argument instead of
+        // being matched client-side against an unfiltered row set after the
+        // fact. That client-side match was a second, independent computation
+        // that could drift from the pie slice's own SQL-computed count
+        // (e.g. if filters changed between the donut render and the click).
+        // Filtering in the same query that computes the status guarantees
+        // the drilldown row count always equals the slice's count.
+        let call_args = { filters: temp_filters };
+        if (clicked_key !== "All" && context_meta === "Status") {
+            call_args.status = clicked_key;
+        }
+
         frappe.call({
             method: `dashboard.dashboard.page.procurement.procurement.${method_name}`,
-            args: { filters: temp_filters },
+            args: call_args,
             callback: function (res) {
                 d.$body.find('.drilldown-loading').remove();
                 let records = res.message || [];
-
-                // Client-side status filter for donut drilldowns
-                if (clicked_key !== "All" && context_meta === "Status") {
-                    if (method_name === 'get_po_receipt_status_sql') {
-                        records = records.filter(x => (x.receipt_status === clicked_key));
-                    } else if (method_name === 'get_po_invoice_status_sql') {
-                        records = records.filter(x => (x.invoice_status === clicked_key));
-                    }
-                }
 
                 if (!records.length) {
                     d.$body.find('.drilldown-table-wrapper').html(
@@ -427,70 +485,109 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
 
                 let sysCurrency = frappe.boot.sysdefaults.currency;
 
-                // ★ FIX 1 (continued): header now says "Qty" or "Amount"
-                let table_html = `
-                    <table class="table table-bordered table-condensed table-hover"
-                           style="font-size: 13px; background:#fff; margin-bottom: 0px;">
-                        <thead>
-                            <tr style="background-color: #f3f4f6; color: #34495e; font-weight: bold;">
-                                <th style="width: 65px; text-align: center;">${__('S.No.')}</th>
-                                <th>${__('Document (Link)')}</th>
-                                <th>${__('Date')}</th>
-                                <th>${__('Items / Description')}</th>
-                                <th style="text-align: right;">${__(metric_header)}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                `;
+                let is_po_doc = (method_name === 'get_purchase_orders_sql');
+                let table_html = "";
+                if (is_po_doc) {
+                    table_html = `
+                        <table class="table table-bordered table-condensed table-hover"
+                               style="font-size: 13px; background:#fff; margin-bottom: 0px;">
+                            <thead>
+                                <tr style="background-color: #f3f4f6; color: #34495e; font-weight: bold;">
+                                    <th style="width: 65px; text-align: center;">${__('S.No.')}</th>
+                                    <th>${__('Document (Link)')}</th>
+                                    <th>${__('Item')}</th>
+                                    <th style="text-align: right;">${__('Qty')}</th>
+                                    <th style="text-align: right;">${__('Amount')}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+                } else {
+                    table_html = `
+                        <table class="table table-bordered table-condensed table-hover"
+                               style="font-size: 13px; background:#fff; margin-bottom: 0px;">
+                            <thead>
+                                <tr style="background-color: #f3f4f6; color: #34495e; font-weight: bold;">
+                                    <th style="width: 65px; text-align: center;">${__('S.No.')}</th>
+                                    <th>${__('Document (Link)')}</th>
+                                    <th>${__('Date')}</th>
+                                    <th>${__('Items / Description')}</th>
+                                    <th style="text-align: right;">${__(metric_header)}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                    `;
+                }
 
                 records.forEach((row, idx) => {
                     let doc_name = row.purchase_order || row.po_number || row.name;
                     let doc_date = row.transaction_date ? frappe.datetime.str_to_user(row.transaction_date) : '-';
-                    let item_desc = row.item_code || row.items || '-';
-                    let metric_disp = "";
 
-                    // ★ Metric display driven by method + metric_type
-                    if (method_name === 'get_pending_items_sql') {
-                        // Bar chart → Qty only
-                        metric_disp = format_number(row.pending_qty, null, 2);
+                    if (is_po_doc) {
+                        let item_desc = row.items || '-';
+                        let qty_disp = fmt_number(row.ordered_qty || 0, 2);
+                        let amount_disp = fmt_currency(row.ordered_amount || 0, sysCurrency);
 
-                    } else if (method_name === 'get_balance_to_pay_sql') {
-                        // Bar chart → Amount only
-                        metric_disp = format_currency(row.balance_to_pay, sysCurrency);
+                        table_html += `
+                            <tr>
+                                <td style="text-align: center; font-weight: 600; color: #7f8c8d;">${idx + 1}</td>
+                                <td>
+                                    <a href="/app/${doctype_route}/${doc_name}" target="_blank"
+                                       style="font-weight:bold; color:#1abc9c; text-decoration: underline; display: inline-block;">
+                                        <i class="fa fa-external-link" style="font-size: 11px; margin-right: 4px;"></i>${doc_name}
+                                    </a>
+                                </td>
+                                <td><span class="text-muted">${item_desc}</span></td>
+                                <td style="text-align: right; font-weight:600; color:#2c3e50;">${qty_disp}</td>
+                                <td style="text-align: right; font-weight:600; color:#2c3e50;">${amount_disp}</td>
+                            </tr>
+                        `;
+                    } else {
+                        let item_desc = row.item_code || row.items || '-';
+                        let metric_disp = "";
 
-                    } else if (method_name === 'get_po_receipt_status_sql') {
-                        // Donut → Qty only
-                        metric_disp = format_number(row.qty || 0, null, 2);
+                        // ★ FIX JS-1: format_currency/format_number replaced with safe wrappers
+                        // ★ FIX JS-2: get_purchase_orders_sql handles 'count' metric_type
+                        // ★ FIX JS-3: get_balance_to_pay_sql reads row.items explicitly
+                        if (method_name === 'get_pending_items_sql') {
+                            // Bar chart → Qty only
+                            metric_disp = fmt_number(row.pending_qty, 2);
 
-                    } else if (method_name === 'get_po_invoice_status_sql') {
-                        // Donut → Qty only
-                        metric_disp = format_number(row.qty || 0, null, 2);
+                        } else if (method_name === 'get_balance_to_pay_sql') {
+                            // Bar chart → Amount only
+                            // row.items is GROUP_CONCAT from SQL — must be read explicitly
+                            metric_disp = fmt_currency(row.balance_to_pay, sysCurrency);
+                            item_desc = row.items || '-';
 
-                    } else if (method_name === 'get_purchase_orders_sql') {
-                        // KPI → Amount only
-                        metric_disp = format_currency(row.ordered_amount || 0, sysCurrency);
-                        item_desc = `Ordered Qty: ${format_number(row.ordered_qty || 0, null, 2)}`;
+                        } else if (method_name === 'get_po_receipt_status_sql') {
+                            // Donut → Qty only
+                            metric_disp = fmt_number(row.qty || 0, 2);
 
-                    } else if (method_name === 'get_purchase_receipts_sql' || method_name === 'get_purchase_invoices_sql') {
-                        // KPI → Amount only
-                        metric_disp = format_currency(row.ordered_amount || 0, sysCurrency);
-                        item_desc = row.items ? row.items : 'No items listed';
+                        } else if (method_name === 'get_po_invoice_status_sql') {
+                            // Donut → Qty only
+                            metric_disp = fmt_number(row.qty || 0, 2);
+
+                        } else if (method_name === 'get_purchase_receipts_sql' || method_name === 'get_purchase_invoices_sql') {
+                            // KPI → Amount only
+                            metric_disp = fmt_currency(row.ordered_amount || 0, sysCurrency);
+                            item_desc = row.items || 'No items listed';
+                        }
+
+                        table_html += `
+                            <tr>
+                                <td style="text-align: center; font-weight: 600; color: #7f8c8d;">${idx + 1}</td>
+                                <td>
+                                    <a href="/app/${doctype_route}/${doc_name}" target="_blank"
+                                       style="font-weight:bold; color:#1abc9c; text-decoration: underline; display: inline-block;">
+                                        <i class="fa fa-external-link" style="font-size: 11px; margin-right: 4px;"></i>${doc_name}
+                                    </a>
+                                </td>
+                                <td>${doc_date}</td>
+                                <td><span class="text-muted">${item_desc}</span></td>
+                                <td style="text-align: right; font-weight:600; color:#2c3e50;">${metric_disp}</td>
+                            </tr>
+                        `;
                     }
-
-                    table_html += `
-                        <tr>
-                            <td style="text-align: center; font-weight: 600; color: #7f8c8d;">${idx + 1}</td>
-                            <td>
-                                <a href="/app/${doctype_route}/${doc_name}" target="_blank"
-                                   style="font-weight:bold; color:#1abc9c; text-decoration: underline; display: inline-block;">
-                                    <i class="fa fa-external-link" style="font-size: 11px; margin-right: 4px;"></i>${doc_name}
-                                </a>
-                            </td>
-                            <td>${doc_date}</td>
-                            <td><span class="text-muted">${item_desc}</span></td>
-                            <td style="text-align: right; font-weight:600; color:#2c3e50;">${metric_disp}</td>
-                        </tr>
-                    `;
                 });
 
                 table_html += `</tbody></table>`;
@@ -503,21 +600,21 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
     function render_all_kpi_cards(data) {
         let sysCurrency = frappe.boot.sysdefaults.currency;
         $('#kpi-container').html(`
-            <div class="kpi-card" data-method="get_purchase_orders_sql" data-title="Total Purchase Orders" style="border-left: 5px solid #2980b9;">
+            <div class="kpi-card" data-method="get_purchase_orders_sql" data-title="Total Purchase Orders" data-metric-type="count" style="border-left: 5px solid #2980b9;">
                 <div class="kpi-label">Total Count</div>
                 <div class="kpi-value">${data.total_count || 0}</div>
             </div>
             <div class="kpi-card" data-method="get_purchase_orders_sql" data-title="Purchase Order Grand Amount" style="border-left: 5px solid #f39c12;">
                 <div class="kpi-label">PO Grand Amount</div>
-                <div class="kpi-value">${format_currency(data.total_po_amount || 0, sysCurrency)}</div>
+                <div class="kpi-value">${fmt_currency(data.total_po_amount || 0, sysCurrency)}</div>
             </div>
             <div class="kpi-card" data-method="get_purchase_receipts_sql" data-title="Purchase Receipt Grand Amount" style="border-left: 5px solid #27ae60;">
                 <div class="kpi-label">PR Grand Amount</div>
-                <div class="kpi-value">${format_currency(data.total_pr_amount || 0, sysCurrency)}</div>
+                <div class="kpi-value">${fmt_currency(data.total_pr_amount || 0, sysCurrency)}</div>
             </div>
             <div class="kpi-card" data-method="get_purchase_invoices_sql" data-title="Purchase Invoice Grand Amount" style="border-left: 5px solid #8e44ad;">
                 <div class="kpi-label">PI Grand Amount</div>
-                <div class="kpi-value">${format_currency(data.total_pi_amount || 0, sysCurrency)}</div>
+                <div class="kpi-value">${fmt_currency(data.total_pi_amount || 0, sysCurrency)}</div>
             </div>
         `);
 
@@ -526,26 +623,39 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
             function () { $(this).css('transform', 'translateY(0px)'); }
         );
 
-        // ★ KPI clicks → metric_type='amount'
+        // ★ FIX JS-2: read data-metric-type so Count card opens with 'count' metric
+        //             (defaults to 'amount' for all other cards)
         $('.kpi-card').off('click').on('click', function () {
             let method = $(this).data('method');
             let title = $(this).data('title');
             let doctype = $(this).data('doctype');
-            open_drilldown_dialog(title, method, "All", doctype, 'amount');
+            let metric = $(this).data('metric-type') || 'amount';
+            open_drilldown_dialog(title, method, "All", doctype, metric);
         });
     }
 
     // --- BAR CHARTS ---------------------------------------------------------
+    // ★ FIX: explicit client-side sort (descending by value) so ordering
+    // never silently depends on however the JSON transport happens to
+    // preserve SQL ORDER BY — and so it stays correct after grouping by
+    // item_group instead of item_code.
     function render_vertical_bar(elementId, title, categories, values, color, mode, targetMethod) {
         let chartDom = document.getElementById(elementId);
         if (!chartDom) return;
-        let myChart = echarts.init(chartDom);
+
+        let paired = categories.map((c, i) => ({ c, v: values[i] }));
+        paired.sort((a, b) => b.v - a.v);
+        categories = paired.map(p => p.c);
+        values = paired.map(p => p.v);
+
+        let myChart = init_chart(elementId);
+        if (!myChart) return;
         let option = {
             title: { text: title, left: 'left', textStyle: { fontSize: 14, color: '#34495e' } },
             tooltip: {
                 trigger: 'axis',
                 axisPointer: { type: 'shadow' },
-                formatter: p => `${p[0].name}: <b>${(mode === 'Val') ? format_currency(p[0].value, frappe.boot.sysdefaults.currency) : format_number(p[0].value, null, 2)}</b>`
+                formatter: p => `${p[0].name}: <b>${(mode === 'Val') ? fmt_currency(p[0].value, frappe.boot.sysdefaults.currency) : fmt_number(p[0].value, 2)}</b>`
             },
             dataZoom: [
                 { type: 'slider', show: true, start: 0, end: Math.min(100, Math.max(10, (10 / (categories.length || 1)) * 100)), bottom: 10 },
@@ -562,19 +672,19 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
         myChart.on('click', function (params) {
             if (params.name) {
                 // ★ Bar click → 'qty' for Pending Qty, 'amount' for Balance to Pay
+                // ★ context_meta is now 'Item Group' (was 'Item')
                 let metric_type = (mode === 'Val') ? 'amount' : 'qty';
-                open_drilldown_dialog(title, targetMethod, params.name, 'Item', metric_type);
+                open_drilldown_dialog(title, targetMethod, params.name, 'Item Group', metric_type);
             }
         });
-
-        window.addEventListener('resize', () => myChart.resize());
     }
 
     // --- DONUT CHARTS -------------------------------------------------------
     function render_donut_chart(elementId, title, data, colorPalette, targetMethod) {
         let chartDom = document.getElementById(elementId);
         if (!chartDom) return;
-        let myChart = echarts.init(chartDom);
+        let myChart = init_chart(elementId);
+        if (!myChart) return;
         let option = {
             title: { text: title, left: 'center', textStyle: { fontSize: 14, color: '#34495e' }, top: 5 },
             tooltip: { trigger: 'item', triggerOn: 'mousemove', formatter: '{b} : <b>{c} rows</b> ({d}%)' },
@@ -596,28 +706,26 @@ frappe.pages['procurement'].on_page_load = function(wrapper) {
                 open_drilldown_dialog(title, targetMethod, params.name, 'Status', 'qty');
             }
         });
-
-        window.addEventListener('resize', () => myChart.resize());
     }
 
     // --- FUNNEL -------------------------------------------------------------
     function render_echart(data) {
         let chartDom = document.getElementById('procurement-funnel');
         if (!chartDom) return;
-        let myChart = echarts.init(chartDom);
+        let myChart = init_chart('procurement-funnel');
+        if (!myChart) return;
         let option = {
-            title: { text: 'Procurement Conversion Funnel', left: 'center', top: 10 },
-            tooltip: { trigger: 'item', formatter: p => `${p.name} : <b>${format_currency(p.value, frappe.boot.sysdefaults.currency)}</b>` },
+            title: { text: 'Procurement Funnel', left: 'center', top: 10 },
+            tooltip: { trigger: 'item', formatter: p => `${p.name} : <b>${fmt_currency(p.value, frappe.boot.sysdefaults.currency)}</b>` },
             legend: { orient: 'horizontal', bottom: '0%', left: 'center', data: ['Purchase Order', 'Purchase Receipt', 'Purchase Invoice', 'Payment Entry'] },
             series: [{
                 name: 'Procurement Stage', type: 'funnel', left: '25%', top: 60, bottom: 80, width: '50%',
                 min: 0, minSize: '0%', maxSize: '100%', sort: 'descending', gap: 4,
-                label: { show: true, position: 'inside', formatter: p => `${p.name}\n(${format_currency(p.value, frappe.boot.sysdefaults.currency)})` },
+                label: { show: true, position: 'inside', formatter: p => `${p.name}\n(${fmt_currency(p.value, frappe.boot.sysdefaults.currency)})` },
                 itemStyle: { borderColor: '#fff', borderWidth: 2 },
                 data: data
             }]
         };
         myChart.setOption(option, true);
-        window.addEventListener('resize', () => myChart.resize());
     }
 };

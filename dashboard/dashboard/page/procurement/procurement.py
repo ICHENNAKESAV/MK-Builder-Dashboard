@@ -6,7 +6,9 @@ from frappe.utils import flt
 # ============================================================
 # FILTER OPTIONS — powers the pure-JS filter bar on the client.
 # Only returns values that actually occur in submitted documents,
-# instead of the entire Company/Supplier/Item/Project doctype.
+# instead of the entire Company/Supplier/Item Group/Project doctype.
+#
+# ★ CHANGE: item-level filter replaced with item_group filter.
 # ============================================================
 @frappe.whitelist()
 def get_filter_options():
@@ -34,19 +36,20 @@ def get_filter_options():
         ORDER BY project
     """, as_dict=1)
 
-    items = frappe.db.sql("""
-        SELECT DISTINCT poi.item_code
+    # ★ item_group instead of item_code
+    item_groups = frappe.db.sql("""
+        SELECT DISTINCT poi.item_group
         FROM `tabPurchase Order Item` poi
         INNER JOIN `tabPurchase Order` po ON po.name = poi.parent
-        WHERE po.docstatus = 1
-        ORDER BY poi.item_code
+        WHERE po.docstatus = 1 AND poi.item_group IS NOT NULL AND poi.item_group != ''
+        ORDER BY poi.item_group
     """, as_dict=1)
 
     return {
         "companies": [r.company for r in companies],
         "suppliers": [r.supplier for r in suppliers],
         "projects": [r.project for r in projects],
-        "items": [r.item_code for r in items],
+        "item_groups": [r.item_group for r in item_groups],
     }
 
 
@@ -98,9 +101,11 @@ def build_conditions(filters, alias, date_col, item_alias=None, item_table=None)
 
     alias      : SQL alias of the parent doctype in the query (e.g. 'po', 'pr', 'pi')
     date_col   : the date fieldname on the parent doctype to filter from_date/to_date against
-    item_alias / item_table : if given and item_code(s) are selected, an EXISTS
-                 subquery against that child table is added (so item filtering never
-                 duplicates parent rows).
+    item_alias / item_table : if given and item_group(s) are selected, an EXISTS
+                 subquery against that child table is added (so item-group filtering
+                 never duplicates parent rows).
+
+    ★ CHANGE: filters by item_group instead of item_code.
     """
     conditions = [f"{alias}.docstatus = 1"]
     values = {}
@@ -119,25 +124,25 @@ def build_conditions(filters, alias, date_col, item_alias=None, item_table=None)
         conditions.append(f"{alias}.{date_col} <= %(to_date)s")
         values["to_date"] = filters["to_date"]
 
-    item_items = _as_list(filters.get("item_code"))
-    if item_items and item_alias and item_table:
-        placeholders = _in_clause(values, "item_code", item_items)
+    item_group_items = _as_list(filters.get("item_group"))
+    if item_group_items and item_alias and item_table:
+        placeholders = _in_clause(values, "item_group", item_group_items)
         conditions.append(f"""EXISTS (
-            SELECT 1 FROM `{item_table}` {item_alias}
-            WHERE {item_alias}.parent = {alias}.name AND {item_alias}.item_code IN ({placeholders})
+            SELECT 1 FROM `tab{item_table}` {item_alias}
+            WHERE {item_alias}.parent = {alias}.name AND {item_alias}.item_group IN ({placeholders})
         )""")
 
     return " AND ".join(conditions), values
 
 
-def apply_direct_item_filter(filters, where, values, item_alias="poi"):
+def apply_direct_item_group_filter(filters, where, values, item_alias="poi"):
     """For queries already joined directly to a *Item child table, adds an
-    IN clause against that alias (used instead of build_conditions' EXISTS
-    subquery when the item table is already part of the FROM/JOIN)."""
-    item_items = _as_list(filters.get("item_code"))
-    if item_items:
-        placeholders = _in_clause(values, "item_code", item_items)
-        where += f" AND {item_alias}.item_code IN ({placeholders})"
+    IN clause against that alias's item_group (used instead of build_conditions'
+    EXISTS subquery when the item table is already part of the FROM/JOIN)."""
+    item_group_items = _as_list(filters.get("item_group"))
+    if item_group_items:
+        placeholders = _in_clause(values, "item_group", item_group_items)
+        where += f" AND {item_alias}.item_group IN ({placeholders})"
     return where
 
 
@@ -159,7 +164,7 @@ def get_dashboard_kpis(filters=None):
 
     # --- Purchase Order Item level: qty / received / pending ---------------
     qty_where, qty_values = build_conditions(filters, "po", "transaction_date")
-    qty_where = apply_direct_item_filter(filters, qty_where, qty_values)
+    qty_where = apply_direct_item_group_filter(filters, qty_where, qty_values)
     qty_row = frappe.db.sql(f"""
         SELECT
             IFNULL(SUM(poi.qty), 0) as total_qty,
@@ -186,17 +191,26 @@ def get_dashboard_kpis(filters=None):
         WHERE {pi_where}
     """, pi_values, as_dict=1)[0]
 
-    # --- Balance to pay: GROUP BY po.name first, then SUM the group --------
+    # --- Balance to pay -------------------------------------------------
+    # ★ BUG FIX: previously used `SUM(DISTINCT pii.base_net_amount)` after a
+    # LEFT JOIN, which silently collapses genuinely different invoice lines
+    # that happen to share the same amount (e.g. two ₹500 lines counted as
+    # one). That under-billed figure inflated "balance to pay" so it never
+    # matched the real per-row totals shown in the drilldown table.
+    # Replaced with a correlated subquery that sums billed amounts per PO
+    # directly — no DISTINCT, no collapsing, no duplicate-row risk.
     bal_where, bal_values = build_conditions(filters, "po", "transaction_date", "poi_x", "Purchase Order Item")
     bal_row = frappe.db.sql(f"""
         SELECT IFNULL(SUM(t.balance_to_pay), 0) as total_balance_to_pay FROM (
             SELECT po.name,
-                (po.grand_total - IFNULL(SUM(DISTINCT pii.base_net_amount), 0)) as balance_to_pay
+                (po.grand_total - IFNULL((
+                    SELECT SUM(pii.base_net_amount)
+                    FROM `tabPurchase Invoice Item` pii
+                    INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
+                    WHERE pii.purchase_order = po.name
+                ), 0)) as balance_to_pay
             FROM `tabPurchase Order` po
-            LEFT JOIN `tabPurchase Invoice Item` pii ON pii.purchase_order = po.name
-            LEFT JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
             WHERE {bal_where}
-            GROUP BY po.name, po.grand_total
         ) t
         WHERE t.balance_to_pay > 0
     """, bal_values, as_dict=1)[0]
@@ -214,21 +228,22 @@ def get_dashboard_kpis(filters=None):
 
 
 # ============================================================
-# CHART DATA — grouped in SQL (GROUP BY item_code / status),
+# CHART DATA — grouped in SQL (GROUP BY item_group / status),
 # no client-side map-building needed anymore.
+# ★ CHANGE: bars are grouped by item_group instead of item_code.
 # ============================================================
 @frappe.whitelist()
 def get_pending_items_grouped(filters=None):
     filters = parse_filters(filters)
     where, values = build_conditions(filters, "po", "transaction_date")
-    where = apply_direct_item_filter(filters, where, values)
+    where = apply_direct_item_group_filter(filters, where, values)
 
     return frappe.db.sql(f"""
-        SELECT poi.item_code, SUM(poi.qty - poi.received_qty) as pending_qty
+        SELECT poi.item_group, SUM(poi.qty - poi.received_qty) as pending_qty
         FROM `tabPurchase Order` po
         INNER JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
         WHERE {where} AND (poi.qty - poi.received_qty) > 0
-        GROUP BY poi.item_code
+        GROUP BY poi.item_group
         ORDER BY pending_qty DESC
     """, values, as_dict=1)
 
@@ -237,24 +252,29 @@ def get_pending_items_grouped(filters=None):
 def get_balance_to_pay_grouped(filters=None):
     filters = parse_filters(filters)
     where, values = build_conditions(filters, "po", "transaction_date")
-    where = apply_direct_item_filter(filters, where, values)
+    where = apply_direct_item_group_filter(filters, where, values)
 
-    # Each PO's outstanding balance is split evenly across its distinct items,
-    # then rolled up by item_code — computed entirely in SQL via GROUP BY.
+    # ★ BUG FIX: same SUM(DISTINCT) collapsing issue as above, fixed the same
+    # way — billed amount per PO is now a correlated subquery, computed once
+    # per PO (not once per item-group row), then split evenly across the
+    # distinct item groups on that PO.
     return frappe.db.sql(f"""
-        SELECT t.item_code, SUM(t.balance_share) as balance_to_pay FROM (
-            SELECT po.name, poi.item_code,
-                (po.grand_total - IFNULL(SUM(DISTINCT pii.base_net_amount), 0)) /
-                    (SELECT COUNT(DISTINCT poi2.item_code) FROM `tabPurchase Order Item` poi2 WHERE poi2.parent = po.name)
+        SELECT t.item_group, SUM(t.balance_share) as balance_to_pay FROM (
+            SELECT po.name, poi.item_group,
+                (po.grand_total - IFNULL((
+                    SELECT SUM(pii.base_net_amount)
+                    FROM `tabPurchase Invoice Item` pii
+                    INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
+                    WHERE pii.purchase_order = po.name
+                ), 0)) /
+                    (SELECT COUNT(DISTINCT poi2.item_group) FROM `tabPurchase Order Item` poi2 WHERE poi2.parent = po.name)
                     as balance_share
             FROM `tabPurchase Order` po
             INNER JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
-            LEFT JOIN `tabPurchase Invoice Item` pii ON pii.purchase_order = po.name
-            LEFT JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
             WHERE {where}
-            GROUP BY po.name, poi.item_code
+            GROUP BY po.name, poi.item_group
         ) t
-        GROUP BY t.item_code
+        GROUP BY t.item_group
         HAVING balance_to_pay > 0
         ORDER BY balance_to_pay DESC
     """, values, as_dict=1)
@@ -264,8 +284,17 @@ def get_balance_to_pay_grouped(filters=None):
 def get_receipt_status_grouped(filters=None):
     filters = parse_filters(filters)
     where, values = build_conditions(filters, "po", "transaction_date")
-    where = apply_direct_item_filter(filters, where, values)
+    where = apply_direct_item_group_filter(filters, where, values)
 
+    # ★ BUG FIX: `Purchase Order` has a real column literally named `status`
+    # (Draft / To Bill / To Receive / Completed / Closed / etc). MySQL's
+    # column-resolution rule for GROUP BY prefers a real column from the
+    # FROM-clause tables over a SELECT alias of the same name — so
+    # `GROUP BY status` was silently grouping by the real workflow status
+    # column instead of the CASE label below, splitting each label into
+    # several rows (one per real status that happens to map to it) and
+    # scattering the count across them. Grouping on the CASE expression
+    # itself removes the ambiguity entirely.
     return frappe.db.sql(f"""
         SELECT
             CASE
@@ -277,7 +306,11 @@ def get_receipt_status_grouped(filters=None):
         FROM `tabPurchase Order` po
         INNER JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
         WHERE {where}
-        GROUP BY status
+        GROUP BY CASE
+            WHEN poi.received_qty = 0 THEN 'Not Received'
+            WHEN poi.received_qty >= poi.qty THEN 'Fully Received'
+            ELSE 'Partially Received'
+        END
     """, values, as_dict=1)
 
 
@@ -285,8 +318,9 @@ def get_receipt_status_grouped(filters=None):
 def get_invoice_status_grouped(filters=None):
     filters = parse_filters(filters)
     where, values = build_conditions(filters, "po", "transaction_date")
-    where = apply_direct_item_filter(filters, where, values)
+    where = apply_direct_item_group_filter(filters, where, values)
 
+    # ★ Same GROUP BY ambiguity fix as get_receipt_status_grouped.
     return frappe.db.sql(f"""
         SELECT
             CASE
@@ -298,12 +332,19 @@ def get_invoice_status_grouped(filters=None):
         FROM `tabPurchase Order` po
         INNER JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
         WHERE {where}
-        GROUP BY status
+        GROUP BY CASE
+            WHEN poi.billed_amt = 0 THEN 'Not Billed'
+            WHEN poi.billed_amt >= poi.amount THEN 'Fully Billed'
+            ELSE 'Partially Billed'
+        END
     """, values, as_dict=1)
 
 
 # ============================================================
 # ROW-LEVEL DATA — feeds the drilldown dialog tables.
+# These stay at item_code granularity (the actual PO/PR/PI lines),
+# even though the bar/donut charts above now group by item_group —
+# the drilldown is meant to show the real underlying line items.
 # ============================================================
 @frappe.whitelist()
 def get_purchase_orders_sql(filters=None):
@@ -312,11 +353,13 @@ def get_purchase_orders_sql(filters=None):
     where, values = build_conditions(filters, "po", "transaction_date", "poi_x", "Purchase Order Item")
     return frappe.db.sql(f"""
         SELECT po.name as purchase_order, po.transaction_date, po.grand_total as ordered_amount,
-               (SELECT SUM(qty) FROM `tabPurchase Order Item` WHERE parent = po.name) as ordered_qty
+               (SELECT SUM(qty) FROM `tabPurchase Order Item` WHERE parent = po.name) as ordered_qty,
+               (SELECT GROUP_CONCAT(DISTINCT item_code SEPARATOR ', ') FROM `tabPurchase Order Item` WHERE parent = po.name) as items
         FROM `tabPurchase Order` po
         WHERE {where}
         ORDER BY po.transaction_date DESC
     """, values, as_dict=1)
+
 
 
 @frappe.whitelist()
@@ -356,14 +399,53 @@ def get_purchase_invoices_sql(filters=None):
         ORDER BY pi.posting_date DESC
     """, values, as_dict=1)
 
+
+# ============================================================
+# ITEM-LEVEL PO DRILLDOWN — powers the "Total Count" and
+# "PO Grand Amount" KPI card drilldowns.
+# Returns one row per Purchase Order Item so the dialog can
+# show actual line items with both Qty and Amount columns.
+# ============================================================
 @frappe.whitelist()
-def get_pending_items_sql(filters=None):
-    """Drilldown source when a bar on the Pending Qty chart is clicked."""
+def get_purchase_order_items_sql(filters=None):
+    """Drilldown source for the Total Count and PO Grand Amount KPI cards.
+
+    Unlike get_purchase_orders_sql (which returns one row per PO document),
+    this returns one row per PO line item — giving the user visibility into
+    what items were ordered and at what qty / amount.
+    """
     filters = parse_filters(filters)
     where, values = build_conditions(filters, "po", "transaction_date")
-    where = apply_direct_item_filter(filters, where, values)
+    where = apply_direct_item_group_filter(filters, where, values)
+
     return frappe.db.sql(f"""
-        SELECT po.name as purchase_order, po.transaction_date, poi.item_code,
+        SELECT
+            po.name            AS purchase_order,
+            po.transaction_date,
+            poi.item_code,
+            poi.item_name,
+            poi.item_group,
+            poi.qty,
+            poi.rate,
+            poi.amount
+        FROM `tabPurchase Order` po
+        INNER JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
+        WHERE {where}
+        ORDER BY po.transaction_date DESC, po.name, poi.idx
+    """, values, as_dict=1)
+
+
+@frappe.whitelist()
+def get_pending_items_sql(filters=None):
+
+    """Drilldown source when a bar on the Pending Qty chart is clicked.
+    filters['item_group'] will contain the clicked group; returns the
+    individual item_code lines that make it up."""
+    filters = parse_filters(filters)
+    where, values = build_conditions(filters, "po", "transaction_date")
+    where = apply_direct_item_group_filter(filters, where, values)
+    return frappe.db.sql(f"""
+        SELECT po.name as purchase_order, po.transaction_date, poi.item_code, poi.item_group,
                (poi.qty - poi.received_qty) as pending_qty
         FROM `tabPurchase Order` po
         INNER JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
@@ -377,15 +459,19 @@ def get_balance_to_pay_sql(filters=None):
     """Drilldown source when a bar on the Balance to Pay chart is clicked."""
     filters = parse_filters(filters)
     where, values = build_conditions(filters, "po", "transaction_date")
-    where = apply_direct_item_filter(filters, where, values)
+    where = apply_direct_item_group_filter(filters, where, values)
+    # ★ Same SUM(DISTINCT) bug fixed here too — correlated subquery instead.
     return frappe.db.sql(f"""
         SELECT po.name as purchase_order, po.transaction_date,
                GROUP_CONCAT(DISTINCT poi.item_code) as items,
-               (po.grand_total - IFNULL(SUM(DISTINCT pii.base_net_amount), 0)) as balance_to_pay
+               (po.grand_total - IFNULL((
+                   SELECT SUM(pii.base_net_amount)
+                   FROM `tabPurchase Invoice Item` pii
+                   INNER JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
+                   WHERE pii.purchase_order = po.name
+               ), 0)) as balance_to_pay
         FROM `tabPurchase Order` po
         INNER JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
-        LEFT JOIN `tabPurchase Invoice Item` pii ON pii.purchase_order = po.name
-        LEFT JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
         WHERE {where}
         GROUP BY po.name, po.transaction_date, po.grand_total
         HAVING balance_to_pay > 0
@@ -394,51 +480,101 @@ def get_balance_to_pay_sql(filters=None):
 
 
 @frappe.whitelist()
-def get_po_receipt_status_sql(filters=None):
-    """Drilldown source when a slice of the Receipt Status donut is clicked."""
+def get_po_receipt_status_sql(filters=None, status=None):
+    """Drilldown source when a slice of the Receipt Status donut is clicked.
+
+    ★ BUG FIX: `status` is now filtered *inside* SQL (via the wrapping
+    HAVING clause below) instead of being fetched unfiltered and matched
+    client-side with `records.filter(...)`. Two separate computations
+    (one in SQL for the pie count, one in JS for the drilldown) can
+    drift apart — e.g. if filters change between the donut rendering
+    and the click. Filtering the status in the same SQL statement that
+    computes it removes that possibility: the row count returned is
+    guaranteed to equal the pie slice's count for the same filters.
+    """
     filters = parse_filters(filters)
     where, values = build_conditions(filters, "po", "transaction_date")
-    where = apply_direct_item_filter(filters, where, values)
+    where = apply_direct_item_group_filter(filters, where, values)
+
+    status_filter = ""
+    if status:
+        status_filter = "WHERE t.receipt_status = %(status)s"
+        values["status"] = status
+
     return frappe.db.sql(f"""
-        SELECT po.name as purchase_order, po.transaction_date, poi.item_code, poi.qty,
-            CASE
-                WHEN poi.received_qty = 0 THEN 'Not Received'
-                WHEN poi.received_qty >= poi.qty THEN 'Fully Received'
-                ELSE 'Partially Received'
-            END as receipt_status
-        FROM `tabPurchase Order` po
-        INNER JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
-        WHERE {where}
-        ORDER BY po.transaction_date DESC
+        SELECT * FROM (
+            SELECT po.name as purchase_order, po.transaction_date, poi.item_code, poi.item_group, poi.qty,
+                CASE
+                    WHEN poi.received_qty = 0 THEN 'Not Received'
+                    WHEN poi.received_qty >= poi.qty THEN 'Fully Received'
+                    ELSE 'Partially Received'
+                END as receipt_status
+            FROM `tabPurchase Order` po
+            INNER JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
+            WHERE {where}
+        ) t
+        {status_filter}
+        ORDER BY t.transaction_date DESC
     """, values, as_dict=1)
 
 
 @frappe.whitelist()
-def get_po_invoice_status_sql(filters=None):
-    """Drilldown source when a slice of the Billing Status donut is clicked."""
+def get_po_invoice_status_sql(filters=None, status=None):
+    """Drilldown source when a slice of the Billing Status donut is clicked.
+    ★ Same server-side status filtering fix as get_po_receipt_status_sql."""
     filters = parse_filters(filters)
     where, values = build_conditions(filters, "po", "transaction_date")
-    where = apply_direct_item_filter(filters, where, values)
+    where = apply_direct_item_group_filter(filters, where, values)
+
+    status_filter = ""
+    if status:
+        status_filter = "WHERE t.invoice_status = %(status)s"
+        values["status"] = status
+
     return frappe.db.sql(f"""
-        SELECT po.name as purchase_order, po.transaction_date, poi.item_code, poi.qty,
-            CASE
-                WHEN poi.billed_amt = 0 THEN 'Not Billed'
-                WHEN poi.billed_amt >= poi.amount THEN 'Fully Billed'
-                ELSE 'Partially Billed'
-            END as invoice_status
-        FROM `tabPurchase Order` po
-        INNER JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
-        WHERE {where}
-        ORDER BY po.transaction_date DESC
+        SELECT * FROM (
+            SELECT po.name as purchase_order, po.transaction_date, poi.item_code, poi.item_group, poi.qty,
+                CASE
+                    WHEN poi.billed_amt = 0 THEN 'Not Billed'
+                    WHEN poi.billed_amt >= poi.amount THEN 'Fully Billed'
+                    ELSE 'Partially Billed'
+                END as invoice_status
+            FROM `tabPurchase Order` po
+            INNER JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
+            WHERE {where}
+        ) t
+        {status_filter}
+        ORDER BY t.transaction_date DESC
     """, values, as_dict=1)
 
 
 @frappe.whitelist()
 def get_sum():
-    """Generates financial volumes for the global Procurement Funnel block (unfiltered)."""
+    """Generates financial volumes for the global Procurement Funnel block (unfiltered).
+
+    ★ FIX PY-1: frappe.db.get_value does not support raw SQL aggregate expressions
+    reliably — it wraps the third arg as a bare column name, not an expression.
+    Using frappe.db.sql with IFNULL guarantees a numeric result even on empty tables.
+    """
+    po = frappe.db.sql(
+        "SELECT IFNULL(SUM(grand_total), 0) AS val FROM `tabPurchase Order` WHERE docstatus = 1",
+        as_dict=1,
+    )
+    pr = frappe.db.sql(
+        "SELECT IFNULL(SUM(grand_total), 0) AS val FROM `tabPurchase Receipt` WHERE docstatus = 1",
+        as_dict=1,
+    )
+    pi = frappe.db.sql(
+        "SELECT IFNULL(SUM(grand_total), 0) AS val FROM `tabPurchase Invoice` WHERE docstatus = 1",
+        as_dict=1,
+    )
+    pe = frappe.db.sql(
+        "SELECT IFNULL(SUM(paid_amount), 0) AS val FROM `tabPayment Entry` WHERE docstatus = 1 AND payment_type = 'Pay'",
+        as_dict=1,
+    )
     return {
-        "purchase_order": frappe.db.get_value("Purchase Order", {"docstatus": 1}, "sum(grand_total)") or 0,
-        "purchase_receipt": frappe.db.get_value("Purchase Receipt", {"docstatus": 1}, "sum(grand_total)") or 0,
-        "purchase_invoice": frappe.db.get_value("Purchase Invoice", {"docstatus": 1}, "sum(grand_total)") or 0,
-        "payment_entry": frappe.db.get_value("Payment Entry", {"docstatus": 1, "payment_type": "Pay"}, "sum(paid_amount)") or 0,
+        "purchase_order":  po[0].val if po else 0,
+        "purchase_receipt": pr[0].val if pr else 0,
+        "purchase_invoice": pi[0].val if pi else 0,
+        "payment_entry":   pe[0].val if pe else 0,
     }
