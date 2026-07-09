@@ -12,37 +12,192 @@ frappe.pages['stockconsumption'].on_page_load = function(wrapper) {
     $('.navbar').hide();
     $('.navbar .container').hide();
 
-    let currentData = [];
+    let allData = [];
+    let filteredData = [];
     let charts = {};
-    let filters = {};
+    let dropdownsInitialized = false;
 
     // ================= UI =================
     $(page.body).html(`
+        <style>
+            .filters-container {
+                display: flex;
+                gap: 15px;
+                flex-wrap: wrap;
+                margin-bottom: 20px;
+                background: white;
+                padding: 15px 20px;
+                border-radius: 10px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+                align-items: flex-end;
+            }
+            .filter-item {
+                display: flex;
+                flex-direction: column;
+                gap: 5px;
+                min-width: 180px;
+                position: relative;
+            }
+            .filter-item label {
+                font-size: 11px;
+                font-weight: bold;
+                color: #777;
+                margin-bottom: 2px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            .filter-control, .dropdown-btn {
+                height: 34px;
+                padding: 6px 12px;
+                background: #fdfdfd;
+                border: 1px solid #dcdcdc;
+                border-radius: 6px;
+                font-size: 12px;
+                color: #333;
+                outline: none;
+                transition: all 0.2s ease;
+                text-align: left;
+                width: 100%;
+                box-sizing: border-box;
+            }
+            .filter-control:focus, .dropdown-btn:focus {
+                border-color: #2490ff;
+                background: white;
+                box-shadow: 0 0 0 3px rgba(36,144,255,0.15);
+            }
+            .dropdown-btn {
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .dropdown-btn::after {
+                content: "▼";
+                font-size: 8px;
+                color: #888;
+                margin-left: 8px;
+                flex-shrink: 0;
+            }
+            .dropdown-content {
+                display: none;
+                position: absolute;
+                top: 58px;
+                left: 0;
+                background: white;
+                border: 1px solid #dcdcdc;
+                border-radius: 8px;
+                box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+                z-index: 100;
+                min-width: 220px;
+                max-width: 320px;
+                max-height: 250px;
+                overflow-y: auto;
+                padding: 10px;
+            }
+            .dropdown-content.show {
+                display: block;
+            }
+            .dropdown-search-wrapper {
+                position: sticky;
+                top: 0;
+                background: white;
+                padding-bottom: 6px;
+                margin-bottom: 6px;
+                border-bottom: 1px solid #eee;
+                z-index: 2;
+            }
+            .dropdown-search {
+                width: 100%;
+                height: 28px;
+                padding: 4px 8px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-size: 11px;
+                box-sizing: border-box;
+            }
+            .option-item {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 4px 6px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 12px;
+                color: #444;
+                transition: background 0.15s ease;
+                user-select: none;
+            }
+            .option-item:hover {
+                background: #f1f3f5;
+            }
+            .option-item input[type="checkbox"] {
+                margin: 0;
+                cursor: pointer;
+                width: 14px;
+                height: 14px;
+                accent-color: #2490ff;
+                flex-shrink: 0;
+            }
+            .select-actions {
+                display: flex;
+                justify-content: space-between;
+                padding: 2px 6px 6px 6px;
+                margin-bottom: 6px;
+                border-bottom: 1px solid #eee;
+            }
+            .select-actions a {
+                font-size: 10px;
+                color: #2490ff;
+                text-decoration: none;
+                cursor: pointer;
+                font-weight: bold;
+            }
+            .select-actions a:hover {
+                text-decoration: underline;
+            }
+        </style>
+
         <div style="padding:20px; background:#f5f7fa; min-height:100vh;">
 
             <h2>📊 Stock Consumption Dashboard</h2>
 
             <!-- FILTERS -->
-            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px; background:white; padding:15px; border-radius:10px;">
-
-                <div id="from_date"></div>
-                <div id="to_date"></div>
-                <div id="item_group"></div>
-                <div id="parent_group"></div>
-                <div id="warehouse"></div>
-
-               
+            <div class="filters-container">
+                <div class="filter-item">
+                    <label>From Date</label>
+                    <input type="date" id="from_date_input" class="filter-control">
+                </div>
+                <div class="filter-item">
+                    <label>To Date</label>
+                    <input type="date" id="to_date_input" class="filter-control">
+                </div>
+                <div class="filter-item" id="item_group_filter">
+                    <label>Item Group</label>
+                    <button class="dropdown-btn" id="item_group_btn">All Item Groups</button>
+                    <div class="dropdown-content" id="item_group_content"></div>
+                </div>
+                <div class="filter-item" id="parent_group_filter">
+                    <label>Parent Item Group</label>
+                    <button class="dropdown-btn" id="parent_group_btn">All Parent Groups</button>
+                    <div class="dropdown-content" id="parent_group_content"></div>
+                </div>
+                <div class="filter-item" id="warehouse_filter">
+                    <label>Warehouse</label>
+                    <button class="dropdown-btn" id="warehouse_btn">All Warehouses</button>
+                    <div class="dropdown-content" id="warehouse_content"></div>
+                </div>
             </div>
 
             <!-- CHARTS -->
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
-                <div id="trendChart" class="card"></div>
-                <div id="topItemsChart" class="card"></div>
+                <div id="trendChart" class="card" style="grid-column: span 2;"></div>
                 <div id="itemGroupChart" class="card"></div>
                 <div id="warehouseChart" class="card"></div>
                 <div id="costCenterChart" class="card"></div>
-                <div id="itemPieChart" class="card"></div>
-                <div id="ParentItemchart" class="card"></div>
+                <div id="parentGroupChart" class="card"></div>
             </div>
         </div>
     `);
@@ -52,58 +207,6 @@ frappe.pages['stockconsumption'].on_page_load = function(wrapper) {
         background: "#fff",
         borderRadius: "10px",
         padding: "10px"
-    });
-
-    // ================= FILTER CONTROLS =================
-    let from_date = frappe.ui.form.make_control({
-        parent: $("#from_date"),
-        df: { fieldtype: "Date", label: "From Date" },
-        render_input: true
-    });
-
-    let to_date = frappe.ui.form.make_control({
-        parent: $("#to_date"),
-        df: { fieldtype: "Date", label: "To Date" },
-        render_input: true
-    });
-
-    let item_group = frappe.ui.form.make_control({
-        parent: $("#item_group"),
-        df: { fieldtype: "Link", options: "Item Group", label: "Item Group" },
-        render_input: true
-    });
-
-    let parent_group = frappe.ui.form.make_control({
-    parent: $("#parent_group"),
-    df: {
-        fieldtype: "Select",
-        label: "Parent Group",
-        options: [
-            "Select Parent Group",
-            "All Item Groups",
-            "ASSET",
-            "Civil",
-            "DOORS AND WINDOW FIXTURES",
-            "Electrical",
-            "Hardware",
-            "MACHINEARY SPARES",
-            "Paints",
-            "PLUMBING AND WATER SUPPLY",
-            "RMC RAW MATERIALS",
-            "SAFETY",
-            "STEEL",
-            "Tiles",
-            "Welding And Fabrication",
-            "WOODEN RUNNERS AND PLY WOOD"
-        ].join("\n")
-    },
-    render_input: true
-    });
-
-    let warehouse = frappe.ui.form.make_control({
-        parent: $("#warehouse"),
-        df: { fieldtype: "Link", options: "Warehouse", label: "Warehouse" },
-        render_input: true
     });
 
     // ================= HELPERS =================
@@ -231,17 +334,40 @@ frappe.pages['stockconsumption'].on_page_load = function(wrapper) {
 
     d.show();
 }
+
+function getCheckedValues(contentId) {
+    let checked = [];
+    $(`#${contentId} .option-item input[type="checkbox"]:checked`).each(function() {
+        checked.push($(this).val());
+    });
+    return checked;
+}
+
 function applyFilters() {
+    let fromVal = $("#from_date_input").val();
+    let toVal = $("#to_date_input").val();
+    
+    let selectedItemGroups = getCheckedValues("item_group_content");
+    let selectedParentGroups = getCheckedValues("parent_group_content");
+    let selectedWarehouses = getCheckedValues("warehouse_content");
 
-    filters = {
-        from_date: from_date.get_value(),
-        to_date: to_date.get_value(),
-        item_group: item_group.get_value(),
-        parent_item_group: parent_group.get_value(),
-        warehouse: warehouse.get_value()
-    };
+    filteredData = allData.filter(d => {
+        if (fromVal && d.Date < fromVal) return false;
+        if (toVal && d.Date > toVal) return false;
 
-    load_data();
+        let dItemGroup = d["Item Group"] || "Undefined";
+        if (selectedItemGroups.length > 0 && !selectedItemGroups.includes(dItemGroup)) return false;
+
+        let dParentGroup = d["Parent Item Group"] || "Undefined";
+        if (selectedParentGroups.length > 0 && !selectedParentGroups.includes(dParentGroup)) return false;
+
+        let dWarehouse = d["Source Warehouse"] || "Undefined";
+        if (selectedWarehouses.length > 0 && !selectedWarehouses.includes(dWarehouse)) return false;
+
+        return true;
+    });
+
+    renderCharts(filteredData);
 }
 
     // ================= LOAD DATA =================
@@ -251,30 +377,143 @@ function applyFilters() {
 
         frappe.call({
             method: "dashboard.dashboard.page.stockconsumption.stockconsumption.get_stock_entry_report",
-            args: filters,
+            args: {},
             callback: r => {
                 frappe.dom.unfreeze();
-                currentData = r.message || [];
+                allData = r.message || [];
 
-                if (!currentData.length) {
+                if (!allData.length) {
                     frappe.msgprint("No data");
                     return;
                 }
 
-                renderCharts();
+                if (!dropdownsInitialized) {
+                    let itemGroups = [...new Set(allData.map(d => d["Item Group"] || "Undefined"))].sort();
+                    let parentGroups = [...new Set(allData.map(d => d["Parent Item Group"] || "Undefined"))].sort();
+                    let warehouses = [...new Set(allData.map(d => d["Source Warehouse"] || "Undefined"))].sort();
+
+                    initCheckboxDropdown("item_group_btn", "item_group_content", itemGroups, "Item Group");
+                    initCheckboxDropdown("parent_group_btn", "parent_group_content", parentGroups, "Parent Group");
+                    initCheckboxDropdown("warehouse_btn", "warehouse_content", warehouses, "Warehouse");
+
+                    dropdownsInitialized = true;
+                }
+
+                applyFilters();
             }
         });
     }
 
+    // ================= CUSTOM DROPDOWN FILTER UI =================
+    function initCheckboxDropdown(btnId, contentId, uniqueValues, placeholder) {
+        let $btn = $(`#${btnId}`);
+        let $content = $(`#${contentId}`);
+
+        // Toggle dropdown
+        $btn.on("click", function(e) {
+            e.stopPropagation();
+            $(".dropdown-content").not($content).removeClass("show");
+            $content.toggleClass("show");
+        });
+
+        // Prevent click inside from closing dropdown
+        $content.on("click", function(e) {
+            e.stopPropagation();
+        });
+
+        // Build HTML content
+        let html = `
+            <div class="dropdown-search-wrapper">
+                <input type="text" class="dropdown-search" placeholder="Search ${placeholder}...">
+            </div>
+            <div class="select-actions">
+                <a class="select-all">Select All</a>
+                <a class="select-none">Clear</a>
+            </div>
+            <div class="options-container" style="max-height: 180px; overflow-y: auto;">
+        `;
+
+        uniqueValues.forEach(val => {
+            let cleanVal = val || "Undefined";
+            let chkId = `chk_${contentId}_${cleanVal.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            html += `
+                <div class="option-item">
+                    <input type="checkbox" value="${cleanVal}" id="${chkId}">
+                    <label style="margin:0; font-weight:normal; cursor:pointer; width:100%;" for="${chkId}">${cleanVal}</label>
+                </div>
+            `;
+        });
+
+        html += `</div>`;
+        $content.html(html);
+
+        let $optionsContainer = $content.find(".options-container");
+
+        // Search options
+        $content.find(".dropdown-search").on("input", function() {
+            let q = $(this).val().toLowerCase();
+            $optionsContainer.find(".option-item").each(function() {
+                let text = $(this).find("label").text().toLowerCase();
+                if (text.indexOf(q) > -1) {
+                    $(this).show();
+                } else {
+                    $(this).hide();
+                }
+            });
+        });
+
+        // Select All
+        $content.find(".select-all").on("click", function() {
+            $optionsContainer.find(".option-item input[type='checkbox']").prop("checked", true);
+            updateButtonText();
+            applyFilters();
+        });
+
+        // Clear
+        $content.find(".select-none").on("click", function() {
+            $optionsContainer.find(".option-item input[type='checkbox']").prop("checked", false);
+            updateButtonText();
+            applyFilters();
+        });
+
+        // Checkbox change
+        $optionsContainer.on("change", "input[type='checkbox']", function() {
+            updateButtonText();
+            applyFilters();
+        });
+
+        function updateButtonText() {
+            let checkedCount = $optionsContainer.find("input[type='checkbox']:checked").length;
+
+            if (checkedCount === 0) {
+                $btn.text(`All ${placeholder}s`);
+            } else if (checkedCount === uniqueValues.length) {
+                $btn.text(`All ${placeholder}s`);
+            } else {
+                $btn.text(`${checkedCount} Selected`);
+            }
+        }
+    }
+
+    // Close dropdowns on document click
+    $(document).on("click", function() {
+        $(".dropdown-content").removeClass("show");
+    });
+
+    // Bind date change events
+    $("#from_date_input, #to_date_input").on("change", function() {
+        applyFilters();
+    });
+
     // ================= RENDER CHARTS =================
-    function renderCharts() {
+    function renderCharts(data) {
 
     Object.values(charts).forEach(c => c.dispose());
     charts = {};
 
     // ================= TREND =================
     let trendMap = {};
-    currentData.forEach(d=>{
+    data.forEach(d=>{
         let m = getMonthKey(d.Date);
         trendMap[m] = flt((trendMap[m] || 0) + flt(d["Total Amount"]), 2);
     });
@@ -291,33 +530,11 @@ function applyFilters() {
     });
 
     charts.trend.on('click',p=>{
-        showDrillDown(p.name,currentData.filter(d=>getMonthKey(d.Date)===p.name));
-    });
-
-    // ================= TOP ITEMS =================
-    let itemMap = {};
-    currentData.forEach(d=>{
-        let k = d.Item || "Undefined";
-        itemMap[k] = flt((itemMap[k] || 0) + flt(d["Total Amount"]), 2);
-    });
-
-    let top = Object.entries(itemMap).sort((a,b)=>b[1]-a[1]).slice(0,10);
-
-    charts.top = echarts.init(document.getElementById("topItemsChart"));
-    charts.top.setOption({
-        title:{text:"Top Items"},
-        tooltip:{trigger:"axis"},
-        xAxis:{type:"category",data:top.map(i=>i[0])},
-        yAxis:{},
-        series:[{type:"bar",data:top.map(i=>i[1])}]
-    });
-
-    charts.top.on('click',p=>{
-        showDrillDown(p.name,currentData.filter(d=>d.Item===p.name));
+        showDrillDown(p.name,data.filter(d=>getMonthKey(d.Date)===p.name));
     });
 
     // ================= ITEM GROUP =================
-    let grp = groupBy(currentData,"Item Group");
+    let grp = groupBy(data,"Item Group");
     let gkeys = Object.keys(grp);
 
     charts.group = echarts.init(document.getElementById("itemGroupChart"));
@@ -334,11 +551,11 @@ function applyFilters() {
     });
 
     charts.group.on('click',p=>{
-        showDrillDown(p.name,currentData.filter(d=>d["Item Group"]===p.name));
+        showDrillDown(p.name,data.filter(d=>d["Item Group"]===p.name));
     });
 
     // ================= WAREHOUSE =================
-    let wh = groupBy(currentData,"Source Warehouse");
+    let wh = groupBy(data,"Source Warehouse");
     let wkeys = Object.keys(wh);
 
     charts.wh = echarts.init(document.getElementById("warehouseChart"));
@@ -355,11 +572,11 @@ function applyFilters() {
     });
 
     charts.wh.on('click',p=>{
-        showDrillDown(p.name,currentData.filter(d=>d["Source Warehouse"]===p.name));
+        showDrillDown(p.name,data.filter(d=>d["Source Warehouse"]===p.name));
     });
 
     // ================= COST CENTER =================
-    let cc = groupBy(currentData,"Cost Center");
+    let cc = groupBy(data,"Cost Center");
     let ckeys = Object.keys(cc);
 
     charts.cc = echarts.init(document.getElementById("costCenterChart"));
@@ -376,72 +593,33 @@ function applyFilters() {
     });
 
     charts.cc.on('click',p=>{
-        showDrillDown(p.name,currentData.filter(d=>d["Cost Center"]===p.name));
-    });
-
-    // ================= PIE =================
-    charts.pie = echarts.init(document.getElementById("itemPieChart"));
-
-    let pieData = Object.entries(itemMap).map(([n, v]) => ({
-        name: n,
-        value: flt(v, 2)
-    }));
-
-    charts.pie.setOption({
-        title: { text: "Item Share", left: "center" },
-        tooltip: {
-            trigger: "item",
-            formatter: p => `${p.name}: ${flt(p.value, 2)} (${p.percent}%)`
-        },
-        series: [{
-            type: "pie",
-            radius: "60%",
-            center: ["40%", "50%"],
-            data: pieData,
-            label: {
-                show: false
-            }
-        }]
-    });
-
-    charts.pie.on('click', p => {
-        showDrillDown(p.name, currentData.filter(d => (d.Item || "Undefined") === p.name));
+        showDrillDown(p.name,data.filter(d=>d["Cost Center"]===p.name));
     });
 
     // ================= ParentItem Bar chart =================
-        let pg = groupBy(currentData,"Parent Item Group");
-        let pgkeys = Object.keys(pg);
+    let pg = groupBy(data,"Parent Item Group");
+    let pgkeys = Object.keys(pg);
 
-        charts.pg = echarts.init(document.getElementById("ParentItemchart"));
-        charts.pg.setOption({
-            title:{text:"Parent Item Group"},
-            tooltip:{trigger:"axis"},
-            legend:{data:["Amount","Qty"]},
-            xAxis:{type:"category",data:pgkeys},
-            yAxis:{type:"value"},
-            series:[
-                {name:"Amount",type:"bar",data:pgkeys.map(k=>pg[k].amount)},
-                {name:"Qty",type:"bar",data:pgkeys.map(k=>pg[k].qty)}
-            ]
-        });
-
-        charts.pg.on('click',p=>{
-        showDrillDown(p.name,currentData.filter(d=>d["Parent Item Group"]===p.name));
+    charts.parentGroup = echarts.init(document.getElementById("parentGroupChart"));
+    charts.parentGroup.setOption({
+        title:{text:"Parent Item Group"},
+        tooltip:{trigger:"axis"},
+        legend:{data:["Amount","Qty"]},
+        xAxis:{type:"category",data:pgkeys},
+        yAxis:{type:"value"},
+        series:[
+            {name:"Amount",type:"bar",data:pgkeys.map(k=>pg[k].amount)},
+            {name:"Qty",type:"bar",data:pgkeys.map(k=>pg[k].qty)}
+        ]
     });
 
+    charts.parentGroup.on('click',p=>{
+        showDrillDown(p.name,data.filter(d=>d["Parent Item Group"]===p.name));
+    });
 
     // resize fix
     window.onresize = () => Object.values(charts).forEach(c => c.resize());
 }
-// ================= FILTER EVENTS =================
-// ================= AUTO FILTER EVENTS =================
-
-[from_date, to_date, item_group, parent_group, warehouse]
-.forEach(f => {
-    f.$input.on("change", () => {
-        applyFilters();
-    });
-});
 
 // initial load
 load_data();
