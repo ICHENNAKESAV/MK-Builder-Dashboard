@@ -37,57 +37,135 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         summary:    null
     };
 
+    // filters now hold ARRAYS for multi-select fields
     let filters = {
-        from_date:  "2025-12-09",
-        to_date:    today,
-        customer:   null,
-        brick_size: null,
-        company:    null
+        from_date:     "2025-12-09",
+        to_date:       today,
+        customers:     [],
+        brick_sizes:   [],
+        companies:     [],
+        raw_materials: []
     };
 
+    // Definition of every multi-select filter: key -> {label, elId}
+    const MULTI_FILTERS = [
+        { key: "customers",     label: "Customer",     placeholder: "All Customers" },
+        { key: "brick_sizes",   label: "Brick Size",   placeholder: "All Brick Sizes" },
+        { key: "companies",     label: "Company",      placeholder: "All Companies" },
+        { key: "raw_materials", label: "Raw Material",  placeholder: "All Materials" }
+    ];
+
     $(page.body).html(`
-        <h2 style="padding:10px 15px;margin:0;font-size:18px;color:#2c3e50;">Bricks Dashboard</h2>
+        <h2 style="padding:12px 16px;margin:0;font-size:18px;color:#2c3e50;letter-spacing:.2px;">&#128296; Bricks Dashboard</h2>
         <style>
-            #dash-root { position: relative; min-height: 100vh; box-sizing: border-box; width: 100%; }
+            #dash-root { position: relative; min-height: 100vh; box-sizing: border-box; width: 100%; font-family: inherit; }
             .dash-grid { display: grid; grid-template-columns: 1fr; gap: 20px; padding: 15px; box-sizing: border-box; }
             @media(min-width:1200px) { .dash-grid { grid-template-columns: 1fr 1fr; } }
             .card-box { background: #fff; border-radius: 12px; padding: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); min-width: 0; }
             .title { font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #2c3e50; }
 
+            /* ================= FILTER BAR ================= */
             .filter-bar {
                 display: flex;
                 gap: 10px;
                 flex-wrap: wrap;
-                padding: 10px 15px;
+                padding: 12px 16px;
                 background: #f8f9fa;
                 border-bottom: 1px solid #eee;
-                align-items: center;
+                align-items: flex-end;
                 box-sizing: border-box;
                 width: 100%;
+                position: relative;
+                z-index: 50;
             }
-            .filter-bar label { font-size: 11px; color: #666; margin-right: 2px; white-space: nowrap; }
-            .filter-bar input,
-            .filter-bar select {
-                padding: 5px 8px;
+            .filter-group { display: flex; flex-direction: column; gap: 3px; }
+            .filter-bar label { font-size: 10.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .3px; }
+            .filter-bar input[type="date"] {
+                padding: 6px 8px;
                 font-size: 12px;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                min-width: 0;
-                flex: 1 1 100px;
-                max-width: 150px;
+                border: 1px solid #dcdfe4;
+                border-radius: 6px;
+                min-width: 130px;
                 box-sizing: border-box;
+                background: #fff;
             }
-            .filter-bar button {
-                padding: 5px 12px;
+            .filter-actions { display: flex; gap: 8px; margin-left: auto; align-items: flex-end; }
+            .btn-clear, .btn-apply {
+                padding: 7px 14px;
                 font-size: 12px;
-                background: #e74c3c;
-                color: #fff;
+                font-weight: 600;
                 border: none;
-                border-radius: 4px;
+                border-radius: 6px;
                 cursor: pointer;
                 white-space: nowrap;
-                flex-shrink: 0;
             }
+            .btn-clear { background: #fff; color: #e74c3c; border: 1px solid #f1b0a8; }
+            .btn-clear:hover { background: #fdecea; }
+            .btn-apply { background: #2c3e50; color: #fff; }
+            .btn-apply:hover { background: #1f2c38; }
+
+            /* Active filter chips */
+            .active-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px 0 16px; }
+            .chip {
+                display: inline-flex; align-items: center; gap: 6px;
+                background: #eaf1ff; color: #2c5aa0; border: 1px solid #cfe0fb;
+                border-radius: 20px; padding: 3px 10px; font-size: 11px; font-weight: 500;
+            }
+            .chip .chip-x { cursor: pointer; font-weight: 700; color: #6d94c9; }
+            .chip .chip-x:hover { color: #2c5aa0; }
+            .active-chips:empty { display: none; }
+
+            /* ================= MULTI-SELECT ================= */
+            .ms-filter { position: relative; }
+            .ms-control {
+                display: flex; align-items: center; justify-content: space-between; gap: 8px;
+                min-width: 150px; max-width: 190px;
+                padding: 6px 8px;
+                font-size: 12px;
+                border: 1px solid #dcdfe4;
+                border-radius: 6px;
+                background: #fff;
+                cursor: pointer;
+                user-select: none;
+            }
+            .ms-control:hover { border-color: #b9c2cc; }
+            .ms-control.active { border-color: #2c3e50; box-shadow: 0 0 0 2px rgba(44,62,80,0.08); }
+            .ms-control .ms-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #333; }
+            .ms-control .ms-count {
+                background: #2c3e50; color: #fff; border-radius: 10px; font-size: 10px;
+                padding: 1px 6px; flex-shrink: 0;
+            }
+            .ms-control .ms-caret { color: #999; font-size: 10px; flex-shrink: 0; }
+            .ms-panel {
+                display: none;
+                position: absolute; top: calc(100% + 4px); left: 0;
+                width: 230px; max-height: 280px;
+                background: #fff; border: 1px solid #e2e5e9; border-radius: 8px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+                z-index: 999;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            .ms-panel.open { display: flex; }
+            .ms-search-wrap { padding: 8px; border-bottom: 1px solid #f0f1f3; }
+            .ms-search {
+                width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 12px;
+                border: 1px solid #e2e5e9; border-radius: 5px;
+            }
+            .ms-actions-row {
+                display: flex; justify-content: space-between; padding: 6px 10px;
+                border-bottom: 1px solid #f0f1f3; font-size: 11px;
+            }
+            .ms-actions-row a { color: #2c5aa0; cursor: pointer; }
+            .ms-actions-row a:hover { text-decoration: underline; }
+            .ms-options { overflow-y: auto; padding: 4px 0; }
+            .ms-option {
+                display: flex; align-items: center; gap: 8px;
+                padding: 6px 12px; font-size: 12.5px; cursor: pointer; color: #333;
+            }
+            .ms-option:hover { background: #f5f7fa; }
+            .ms-option input { pointer-events: none; }
+            .ms-empty { padding: 12px; text-align: center; color: #aaa; font-size: 12px; }
 
             /* Modal */
             .drill-modal {
@@ -97,10 +175,9 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
                 min-height: 100%;
                 background: rgba(0,0,0,0.35);
                 display: flex;
-                align-items: flex-start;
+                align-items: center;
                 justify-content: center;
                 z-index: 9999;
-                padding-top: 60px;
                 box-sizing: border-box;
             }
             .drill-box {
@@ -138,16 +215,43 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
 
         <div id="dash-root">
             <div class="filter-bar">
-                <label>From</label><input type="date" id="from_date">
-                <label>To</label><input type="date" id="to_date">
-                <label>Customer</label>
-                <select id="customer_filter"><option value="">All Customers</option></select>
-                <label>Brick Size</label>
-                <select id="brick_filter"><option value="">All Brick Sizes</option></select>
-                <label>Company</label>
-                <select id="company_filter"><option value="">All Companies</option></select>
-                <button id="clear_filters">&#10005; Clear</button>
+                <div class="filter-group">
+                    <label>From</label>
+                    <input type="date" id="from_date">
+                </div>
+                <div class="filter-group">
+                    <label>To</label>
+                    <input type="date" id="to_date">
+                </div>
+
+                ${MULTI_FILTERS.map(f => `
+                    <div class="filter-group">
+                        <label>${f.label}</label>
+                        <div class="ms-filter" data-key="${f.key}">
+                            <div class="ms-control" tabindex="0">
+                                <span class="ms-text">${f.placeholder}</span>
+                                <span class="ms-caret">&#9662;</span>
+                            </div>
+                            <div class="ms-panel">
+                                <div class="ms-search-wrap">
+                                    <input type="text" class="ms-search" placeholder="Search ${f.label.toLowerCase()}...">
+                                </div>
+                                <div class="ms-actions-row">
+                                    <a class="ms-all">Select all</a>
+                                    <a class="ms-clear">Clear</a>
+                                </div>
+                                <div class="ms-options"></div>
+                            </div>
+                        </div>
+                    </div>
+                `).join("")}
+
+                <div class="filter-actions">
+                    <button class="btn-clear" id="clear_filters">&#10005; Clear All</button>
+                </div>
             </div>
+
+            <div class="active-chips" id="active_chips"></div>
 
             <div class="dash-grid">
                 <div class="card-box">
@@ -208,6 +312,17 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         }));
     }
 
+    function tooltipFormatter(params) {
+        if (!Array.isArray(params)) {
+            params = [params];
+        }
+        let html = params[0].axisValue + "<br/>";
+        params.forEach(p => {
+            html += `${p.marker} ${p.seriesName}: ${Number(p.value || 0).toFixed(2)}<br/>`;
+        });
+        return html;
+    }
+
     // =========================
     // DRILLDOWN MODAL
     // =========================
@@ -264,16 +379,180 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     }
 
     // =========================
+    // MULTI-SELECT DROPDOWN ENGINE
+    // =========================
+    // Holds the raw (label, value) option list for each filter key
+    let ms_options_cache = {};
+
+    function build_multiselect(key, options) {
+        // options: [{label, value}]
+        ms_options_cache[key] = options;
+
+        let $filter  = $(`.ms-filter[data-key="${key}"]`);
+        let $panel   = $filter.find(".ms-panel");
+        let $optWrap = $filter.find(".ms-options");
+        let $search  = $filter.find(".ms-search");
+
+        function render_options(filterText) {
+            let text = (filterText || "").toLowerCase();
+            let visible = options.filter(o => o.label.toLowerCase().includes(text));
+
+            if (visible.length === 0) {
+                $optWrap.html(`<div class="ms-empty">No matches</div>`);
+                return;
+            }
+
+            $optWrap.html(visible.map(o => {
+                let checked = filters[key].includes(o.value) ? "checked" : "";
+                return `
+                    <label class="ms-option">
+                        <input type="checkbox" value="${o.value}" ${checked}>
+                        <span>${o.label}</span>
+                    </label>
+                `;
+            }).join(""));
+        }
+
+        render_options("");
+        update_control_label(key);
+
+        $search.off("input").on("input", function() {
+            render_options($(this).val());
+        });
+
+        $optWrap.off("click", ".ms-option").on("click", ".ms-option", function(e) {
+            e.preventDefault();
+            let $cb = $(this).find("input");
+            let val = $cb.val();
+            let checked = !$cb.prop("checked");
+            $cb.prop("checked", checked);
+
+            let idx = filters[key].indexOf(val);
+            if (checked && idx === -1) filters[key].push(val);
+            if (!checked && idx !== -1) filters[key].splice(idx, 1);
+
+            update_control_label(key);
+            render_chips();
+            on_filters_changed(key);
+        });
+
+        $filter.find(".ms-all").off("click").on("click", function(e) {
+            e.preventDefault();
+            filters[key] = options.map(o => o.value);
+            render_options($search.val());
+            update_control_label(key);
+            render_chips();
+            on_filters_changed(key);
+        });
+
+        $filter.find(".ms-clear").off("click").on("click", function(e) {
+            e.preventDefault();
+            filters[key] = [];
+            render_options($search.val());
+            update_control_label(key);
+            render_chips();
+            on_filters_changed(key);
+        });
+
+        $filter.find(".ms-control").off("click").on("click", function(e) {
+            e.stopPropagation();
+            let is_open = $panel.hasClass("open");
+            $(".ms-panel").removeClass("open");
+            $(".ms-control").removeClass("active");
+            if (!is_open) {
+                $panel.addClass("open");
+                $(this).addClass("active");
+                $search.val("").trigger("focus");
+                render_options("");
+            }
+        });
+    }
+
+    function update_control_label(key) {
+        let def = MULTI_FILTERS.find(f => f.key === key);
+        let $control = $(`.ms-filter[data-key="${key}"] .ms-control`);
+        let count = filters[key].length;
+
+        $control.find(".ms-count").remove();
+
+        if (count === 0) {
+            $control.find(".ms-text").text(def.placeholder);
+        } else {
+            let opts = ms_options_cache[key] || [];
+            let firstLabel = (opts.find(o => o.value === filters[key][0]) || {}).label || filters[key][0];
+            $control.find(".ms-text").text(firstLabel);
+            if (count > 0) {
+                $control.find(".ms-caret").before(`<span class="ms-count">${count}</span>`);
+            }
+        }
+    }
+
+    // Close any open dropdown when clicking outside
+    $(document).off("click.msdropdown").on("click.msdropdown", function() {
+        $(".ms-panel").removeClass("open");
+        $(".ms-control").removeClass("active");
+    });
+
+    // =========================
+    // ACTIVE FILTER CHIPS
+    // =========================
+    function render_chips() {
+        let $chips = $("#active_chips");
+        let html = "";
+
+        MULTI_FILTERS.forEach(f => {
+            let opts = ms_options_cache[f.key] || [];
+            filters[f.key].forEach(val => {
+                let label = (opts.find(o => o.value === val) || {}).label || val;
+                html += `<span class="chip" data-key="${f.key}" data-val="${val}">${f.label}: ${label} <span class="chip-x">&#10005;</span></span>`;
+            });
+        });
+
+        $chips.html(html);
+
+        $chips.off("click", ".chip-x").on("click", ".chip-x", function() {
+            let $chip = $(this).closest(".chip");
+            let key = $chip.data("key");
+            let val = String($chip.data("val"));
+            let idx = filters[key].indexOf(val);
+            if (idx !== -1) filters[key].splice(idx, 1);
+
+            // sync checkbox state in the dropdown if currently rendered
+            $(`.ms-filter[data-key="${key}"] .ms-option input[value="${val}"]`).prop("checked", false);
+            update_control_label(key);
+            render_chips();
+            on_filters_changed(key);
+        });
+    }
+
+    // Called whenever any multi-select filter changes; routes to the right re-render
+    function on_filters_changed(changed_key) {
+        if (changed_key === "companies") {
+            render_all();
+        } else if (changed_key === "customers") {
+            render_customer();
+            render_brick_size();
+        } else if (changed_key === "brick_sizes") {
+            render_customer();
+            render_production();
+        } else if (changed_key === "raw_materials") {
+            render_material();
+        } else {
+            render_all();
+        }
+    }
+
+    // =========================
     // FILTER FUNCTIONS
     // =========================
     function filter_for_customer(data) {
         return data.filter(d => {
             let date = String(d.date || d.posting_date || "");
-            if (filters.from_date  && date < filters.from_date)               return false;
-            if (filters.to_date    && date > filters.to_date)                 return false;
-            if (filters.customer   && d._customer_key !== filters.customer)   return false;
-            if (filters.brick_size && d._brick_key    !== filters.brick_size) return false;
-            if (filters.company    && d._company_key  !== filters.company)    return false;
+            if (filters.from_date && date < filters.from_date) return false;
+            if (filters.to_date   && date > filters.to_date)   return false;
+            if (filters.customers.length     && !filters.customers.includes(d._customer_key)) return false;
+            if (filters.brick_sizes.length   && !filters.brick_sizes.includes(d._brick_key))   return false;
+            if (filters.companies.length     && !filters.companies.includes(d._company_key))   return false;
             return true;
         });
     }
@@ -281,10 +560,10 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     function filter_for_brick_size(data) {
         return data.filter(d => {
             let date = String(d.date || d.posting_date || "");
-            if (filters.from_date && date < filters.from_date)              return false;
-            if (filters.to_date   && date > filters.to_date)                return false;
-            if (filters.customer  && d._customer_key !== filters.customer)  return false;
-            if (filters.company   && d._company_key  !== filters.company)   return false;
+            if (filters.from_date && date < filters.from_date) return false;
+            if (filters.to_date   && date > filters.to_date)   return false;
+            if (filters.customers.length && !filters.customers.includes(d._customer_key)) return false;
+            if (filters.companies.length && !filters.companies.includes(d._company_key))  return false;
             return true;
         });
     }
@@ -292,9 +571,10 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     function filter_for_production(data) {
         return data.filter(d => {
             let date = String(d.date || "");
-            if (filters.from_date && date < filters.from_date)             return false;
-            if (filters.to_date   && date > filters.to_date)               return false;
-            if (filters.company   && d._company_key !== filters.company)   return false;
+            if (filters.from_date && date < filters.from_date) return false;
+            if (filters.to_date   && date > filters.to_date)   return false;
+            if (filters.companies.length   && !filters.companies.includes(d._company_key)) return false;
+            if (filters.brick_sizes.length && !filters.brick_sizes.includes(d._brick_key)) return false;
             return true;
         });
     }
@@ -302,9 +582,11 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     function filter_for_material(data) {
         return data.filter(d => {
             let date = String(d.date || "");
-            if (filters.from_date && date < filters.from_date)             return false;
-            if (filters.to_date   && date > filters.to_date)               return false;
-            if (filters.company   && d._company_key !== filters.company)   return false;
+            if (filters.from_date && date < filters.from_date) return false;
+            if (filters.to_date   && date > filters.to_date)   return false;
+            if (filters.companies.length && !filters.companies.includes(d._company_key)) return false;
+            if (filters.raw_materials.length &&
+                !filters.raw_materials.includes(String(d.raw_material || "").toLowerCase())) return false;
             return true;
         });
     }
@@ -349,6 +631,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
                     company:      String(d.company || "").trim(),
                     _company_key: String(d.company || "").trim().toLowerCase()
                 }));
+                populate_material_filter();
                 render_material();
             }
         });
@@ -362,7 +645,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             args: {
                 from_date: filters.from_date,
                 to_date:   filters.to_date,
-                company:   filters.company
+                company:   filters.companies.join(",")
             },
             callback: function(r) {
                 summary_data = r.message || [];
@@ -380,17 +663,9 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         let bricks    = [...new Set(delivery_data.map(d => d.brick_size).filter(Boolean))].sort();
         let companies = [...new Set(delivery_data.map(d => d.company).filter(Boolean))].sort();
 
-        let $cust    = $("#customer_filter");
-        let $brick   = $("#brick_filter");
-        let $company = $("#company_filter");
-
-        $cust.find("option:not(:first)").remove();
-        $brick.find("option:not(:first)").remove();
-        $company.find("option:not(:first)").remove();
-
-        customers.forEach(c => $cust.append(`<option value="${c.toLowerCase()}">${c}</option>`));
-        bricks.forEach(b    => $brick.append(`<option value="${normalize_brick(b)}">${b}</option>`));
-        companies.forEach(c => $company.append(`<option value="${c.toLowerCase()}">${c}</option>`));
+        build_multiselect("customers", customers.map(c => ({ label: c, value: c.toLowerCase() })));
+        build_multiselect("brick_sizes", bricks.map(b => ({ label: b, value: normalize_brick(b) })));
+        build_multiselect("companies", companies.map(c => ({ label: c, value: c.toLowerCase() })));
 
         $("#from_date").val(filters.from_date);
         $("#to_date").val(filters.to_date);
@@ -401,30 +676,20 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             render_all();
         });
 
-        $("#customer_filter").off("change").on("change", function() {
-            filters.customer = $(this).val() || null;
-            render_all();
-        });
-
-        $("#brick_filter").off("change").on("change", function() {
-            filters.brick_size = $(this).val() || null;
-            render_customer();
-        });
-
-        $("#company_filter").off("change").on("change", function() {
-            filters.company = $(this).val() || null;
-            render_all();
-        });
-
         $("#clear_filters").off("click").on("click", function() {
-            filters = { from_date: null, to_date: null, customer: null, brick_size: null, company: null };
+            filters = { from_date: null, to_date: null, customers: [], brick_sizes: [], companies: [], raw_materials: [] };
             $("#from_date").val("");
             $("#to_date").val("");
-            $("#customer_filter").val("");
-            $("#brick_filter").val("");
-            $("#company_filter").val("");
+            MULTI_FILTERS.forEach(f => update_control_label(f.key));
+            $(".ms-option input").prop("checked", false);
+            render_chips();
             render_all();
         });
+    }
+
+    function populate_material_filter() {
+        let materials = [...new Set(material_data.map(d => d.raw_material).filter(Boolean))].sort();
+        build_multiselect("raw_materials", materials.map(m => ({ label: m, value: String(m).toLowerCase() })));
     }
 
     // =========================
@@ -463,7 +728,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         let chart = get_chart("customer", "customerChart");
 
         chart.setOption({
-            tooltip: { trigger: "axis" },
+            tooltip: { trigger: "axis", formatter: tooltipFormatter },
             legend:  { data: ["Qty", "Grand Amount"] },
             grid:    { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
             xAxis: {
@@ -515,7 +780,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         let chart = get_chart("brickSize", "brickSizeChart");
 
         chart.setOption({
-            tooltip: { trigger: "axis" },
+            tooltip: { trigger: "axis", formatter: tooltipFormatter },
             legend:  { data: ["Qty", "Grand Amount"] },
             grid:    { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
             xAxis: {
@@ -567,7 +832,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         let chart = get_chart("production", "productionChart");
 
         chart.setOption({
-            tooltip: { trigger: "axis" },
+            tooltip: { trigger: "axis", formatter: tooltipFormatter },
             legend:  { data: ["Produced Bricks", "Total Cost"] },
             grid:    { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
             xAxis: {
@@ -650,54 +915,95 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     // CHART 5: PRODUCTION vs SALES SUMMARY
     // =========================
     function render_summary_chart() {
+
         let data = summary_data || [];
 
-        if (filters.company) {
-            data = data.filter(d => String(d.company || "").toLowerCase() === filters.company);
-        }
-
-        let items           = data.map(d => d.item);
-        let grand_amount    = data.map(d => Number(d.total_sales_amount    || 0));
-        let production_cost = data.map(d => Number(d.total_production_cost || 0));
-        let balance         = data.map(d => Number(d.balance               || 0));
+        let items = data.map(d => d.item);
+        let produced_qty = data.map(d => Number(d.produced_qty || 0));
+        let sold_qty = data.map(d => Number(d.sold_qty || 0));
+        let balance_qty = data.map(d => Number(d.balance_qty || 0));
 
         let chart = get_chart("summary", "summaryChart");
 
         chart.setOption({
-            tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
-            legend:  { data: ["Grand Amount", "Production Cost", "Balance"] },
-            grid:    { left: 60, right: 20, bottom: 80, top: 50, containLabel: true },
+            tooltip: {
+                trigger: "axis",
+                axisPointer: { type: "shadow" },
+                formatter: tooltipFormatter
+            },
+
+            legend: {
+                data: ["Produced Qty", "Sold Qty", "Balance Qty"]
+            },
+
+            grid: {
+                left: 60,
+                right: 20,
+                bottom: 80,
+                top: 50,
+                containLabel: true
+            },
+
             xAxis: {
                 type: "category",
                 data: items,
-                axisLabel: { rotate: items.length > 5 ? 30 : 0, fontSize: 11 }
+                axisLabel: {
+                    rotate: items.length > 5 ? 30 : 0,
+                    fontSize: 11
+                }
             },
-            yAxis: { type: "value" },
+
+            yAxis: {
+                type: "value"
+            },
+
             series: [
                 {
-                    name: "Grand Amount", type: "bar",
-                    data: grand_amount,
-                    label: { show: true, position: "inside", formatter: p => format_short_number(p.value), color: "#fff", fontSize: 10 }
+                    name: "Produced Qty",
+                    type: "bar",
+                    data: produced_qty,
+                    label: {
+                        show: true,
+                        position: "inside",
+                        formatter: p => format_short_number(p.value),
+                        color: "#fff",
+                        fontSize: 10
+                    }
                 },
                 {
-                    name: "Production Cost", type: "bar",
-                    data: production_cost,
-                    label: { show: true, position: "inside", formatter: p => format_short_number(p.value), color: "#fff", fontSize: 10 }
+                    name: "Sold Qty",
+                    type: "bar",
+                    data: sold_qty,
+                    label: {
+                        show: true,
+                        position: "inside",
+                        formatter: p => format_short_number(p.value),
+                        color: "#fff",
+                        fontSize: 10
+                    }
                 },
                 {
-                    name: "Balance", type: "bar",
-                    data: balance,
-                    label: { show: true, position: "inside", formatter: p => format_short_number(p.value), color: "#fff", fontSize: 10 }
+                    name: "Balance Qty",
+                    type: "bar",
+                    data: balance_qty,
+                    label: {
+                        show: true,
+                        position: "inside",
+                        formatter: p => format_short_number(p.value),
+                        color: "#fff",
+                        fontSize: 10
+                    }
                 }
             ]
         });
 
         chart.off("click");
+
         chart.on("click", function(params) {
             let row = data.filter(d => d.item === params.name);
             open_drilldown(
                 "Production vs Sales — " + params.name,
-                ["item", "produced_bricks", "total_production_cost", "total_sales_amount", "balance"],
+                ["item", "company", "produced_qty", "sold_qty", "balance_qty"],
                 row
             );
         });

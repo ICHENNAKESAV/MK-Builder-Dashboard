@@ -136,11 +136,32 @@ def get_material_consumption(company=None):
 
     return frappe.db.sql(query, values, as_dict=True)
 
+
+def _split_multi(value):
+    """
+    Helper: accepts either a single value or a comma-separated string
+    (as sent by the multi-select filter on the frontend) and returns
+    a clean list of lowercase values. Returns [] if nothing was passed.
+    """
+    if not value:
+        return []
+    if isinstance(value, (list, tuple)):
+        items = value
+    else:
+        items = str(value).split(",")
+    return [v.strip().lower() for v in items if v and str(v).strip()]
+
+
 # =========================
 # 📊 PRODUCTION VS SALES SUMMARY
 # =========================
 @frappe.whitelist()
 def get_production_vs_sales(from_date=None, to_date=None, company=None):
+    """
+    `company` may now be a single company name OR a comma-separated
+    list of company names (sent by the multi-select filter on the
+    dashboard). Both are supported for backwards compatibility.
+    """
 
     conditions_prod = []
     conditions_sales = []
@@ -161,12 +182,14 @@ def get_production_vs_sales(from_date=None, to_date=None, company=None):
         values["to_date"] = to_date
 
     # -------------------------
-    # Company Filter
+    # Company Filter (multi-select aware)
     # -------------------------
-    if company:
-        conditions_prod.append("LOWER(bp.company) = %(company)s")
-        conditions_sales.append("LOWER(dn.company) = %(company)s")
-        values["company"] = company.lower()
+    companies = _split_multi(company)
+
+    if companies:
+        conditions_prod.append("LOWER(bp.company) IN %(companies)s")
+        conditions_sales.append("LOWER(dn.company) IN %(companies)s")
+        values["companies"] = tuple(companies)
 
     # -------------------------
     # WHERE CLAUSE
@@ -189,10 +212,7 @@ def get_production_vs_sales(from_date=None, to_date=None, company=None):
             SELECT
                 bp.company,
                 bp.brick_size AS item_code,
-
-                SUM(bp.produced_bricks) AS total_produced_bricks,
-
-                SUM(bp.total_production_cost) AS total_production_cost
+                SUM(bp.produced_bricks) AS total_produced_qty
 
             FROM `tabBrick Production` bp
 
@@ -206,11 +226,8 @@ def get_production_vs_sales(from_date=None, to_date=None, company=None):
 
             SELECT
                 dn.company,
-                dni.item_code AS item_code,
-
-                SUM(dni.qty) AS total_sold_qty,
-
-                SUM(dni.amount) AS total_sales_amount
+                dni.item_code,
+                SUM(dni.qty) AS total_sold_qty
 
             FROM `tabDelivery Note` dn
 
@@ -228,22 +245,21 @@ def get_production_vs_sales(from_date=None, to_date=None, company=None):
             COALESCE(p.item_code, s.item_code) AS item,
             COALESCE(p.company, s.company) AS company,
 
-            IFNULL(p.total_produced_bricks, 0) AS produced_bricks,
+            IFNULL(p.total_produced_qty, 0) AS produced_qty,
 
-            IFNULL(p.total_production_cost, 0) AS total_production_cost,
-
-            IFNULL(s.total_sales_amount, 0) AS total_sales_amount,
+            IFNULL(s.total_sold_qty, 0) AS sold_qty,
 
             (
-                IFNULL(s.total_sales_amount, 0)
+                IFNULL(p.total_produced_qty, 0)
                 -
-                IFNULL(p.total_production_cost, 0)
-            ) AS balance
+                IFNULL(s.total_sold_qty, 0)
+            ) AS balance_qty
 
         FROM production p
 
         LEFT JOIN sales s
             ON p.item_code = s.item_code
+            AND p.company = s.company
 
         ORDER BY item ASC
     """
