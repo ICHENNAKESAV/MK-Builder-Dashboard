@@ -384,7 +384,7 @@ function render_warehouse(data) {
     charts.warehouse = echarts.init(document.getElementById("chart_warehouse"));
 
     charts.warehouse.setOption({
-        title: { text: "Warehouse Share", left: "center" },
+        title: { text: "Warehouse by Qty", left: "center" },
         tooltip: { trigger: "item" },
         series: [{
             type: "pie",
@@ -422,7 +422,7 @@ function render_mix_raw(data) {
     charts.mix = echarts.init(document.getElementById("chart_mix_raw"));
 
     charts.mix.setOption({
-        title: { text: "Cost Comparison", left: "center" },
+        title: { text: "MC vs RC Comparison", left: "center" },
         tooltip: { trigger: "axis" },
         legend: { data: ["Mixing Cost", "Raw Cost"] },
         xAxis: { type: "category", data: grades },

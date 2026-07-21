@@ -1,4 +1,3 @@
-
 frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
 
     const page = frappe.ui.make_app_page({
@@ -34,14 +33,14 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
             <div class="row">
                 <div class="col-md-6">
                     <div class="rmc-card">
-                        <div class="rmc-title">Quantity Comparison</div>
+                        <div class="rmc-title">EQ VS AQ Comparison</div>
                         <div id="chart_qty" class="chart-box"></div>
                     </div>
                 </div>
 
                 <div class="col-md-6">
                     <div class="rmc-card">
-                        <div class="rmc-title">Cost Comparison</div>
+                        <div class="rmc-title">EC VS AC Comparison</div>
                         <div id="chart_cost" class="chart-box"></div>
                     </div>
                 </div>
@@ -170,7 +169,6 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
             d.act_rate = d.act_qty ? (d.act_cost / d.act_qty) : 0;
             d.rate_diff = d.act_rate - d.est_rate;
 
-            // ✅ VARIANCE = PERCENT ONLY
             d.variance = d.est_qty
                 ? ((d.act_qty - d.est_qty) / d.est_qty) * 100
                 : 0;
@@ -197,7 +195,6 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
                         return `<td></td>`;
                     }
 
-                    // ✅ variance as %
                     if (k === "variance") {
                         return `<td>${format_percent(val)}</td>`;
                     }
@@ -242,7 +239,16 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
 
         function base_option(title, series) {
             return {
-                tooltip: { trigger: 'axis' },
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: function (params) {
+                        let tip = `<strong>${params[0].axisValue}</strong><br/>`;
+                        params.forEach(p => {
+                            tip += `${p.marker} ${p.seriesName}: <strong>${flt(p.value || 0).toFixed(2)}</strong><br/>`;
+                        });
+                        return tip;
+                    }
+                },
                 xAxis: { type: 'category', data: items },
                 yAxis: { type: 'value' },
                 series
@@ -274,30 +280,26 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
 
         function attach_drilldowns(grouped) {
 
-    // Qty Chart
-    charts.qty.off('click');
-    charts.qty.on('click', () => {
-        show_drilldown("Qty Drilldown", grouped);
-    });
+            charts.qty.off('click');
+            charts.qty.on('click', () => {
+                show_drilldown("Qty Drilldown", grouped);
+            });
 
-    // Cost Chart
-    charts.cost.off('click');
-    charts.cost.on('click', () => {
-        show_drilldown("Cost Drilldown", grouped);
-    });
+            charts.cost.off('click');
+            charts.cost.on('click', () => {
+                show_drilldown("Cost Drilldown", grouped);
+            });
 
-    // Cost Difference Chart
-    charts.cost_diff.off('click');
-    charts.cost_diff.on('click', () => {
-        show_drilldown("Cost Difference Drilldown", grouped);
-    });
+            charts.cost_diff.off('click');
+            charts.cost_diff.on('click', () => {
+                show_drilldown("Cost Difference Drilldown", grouped);
+            });
 
-    // Qty Difference Chart
-    charts.qty_diff.off('click');
-    charts.qty_diff.on('click', () => {
-        show_drilldown("Qty Difference Drilldown", grouped);
-    });
-}
-attach_drilldowns(grouped);
+            charts.qty_diff.off('click');
+            charts.qty_diff.on('click', () => {
+                show_drilldown("Qty Difference Drilldown", grouped);
+            });
+        }
+        attach_drilldowns(grouped);
     }
 };

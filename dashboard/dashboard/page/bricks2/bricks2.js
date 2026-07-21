@@ -56,7 +56,6 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     ];
 
     $(page.body).html(`
-        <h2 style="padding:12px 16px;margin:0;font-size:18px;color:#2c3e50;letter-spacing:.2px;">&#128296; Bricks Dashboard</h2>
         <style>
             #dash-root { position: relative; min-height: 100vh; box-sizing: border-box; width: 100%; font-family: inherit; }
             .dash-grid { display: grid; grid-template-columns: 1fr; gap: 20px; padding: 15px; box-sizing: border-box; }
