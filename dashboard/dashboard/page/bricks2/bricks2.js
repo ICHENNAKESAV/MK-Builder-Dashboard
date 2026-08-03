@@ -608,6 +608,23 @@ frappe.pages['bricks2'].on_page_load = function (wrapper) {
     // =========================
     function load_all() {
 
+        // Track completion of all 4 independent data sources so the
+        // "Company" dropdown (which merges companies seen across
+        // delivery/production/material/summary data) is only rebuilt
+        // once everything has actually arrived. Previously the rebuild
+        // was only triggered from the summary callback, so if that
+        // request happened to resolve before production/material
+        // finished loading, companies that only appear in those two
+        // sources could be silently missing from the dropdown.
+        let loaded = { delivery: false, production: false, material: false, summary: false };
+
+        function mark_loaded_and_maybe_rebuild(key) {
+            loaded[key] = true;
+            if (loaded.delivery && loaded.production && loaded.material && loaded.summary) {
+                rebuild_company_filter();
+            }
+        }
+
         frappe.call({
             method: "dashboard.dashboard.page.bricks2.bricks2.get_delivery_notes",
             callback: function (r) {
@@ -615,6 +632,7 @@ frappe.pages['bricks2'].on_page_load = function (wrapper) {
                 populate_filters();
                 render_customer();
                 render_brick_size();
+                mark_loaded_and_maybe_rebuild("delivery");
             }
         });
 
@@ -623,6 +641,7 @@ frappe.pages['bricks2'].on_page_load = function (wrapper) {
             callback: function (r) {
                 production_data = normalize_production(r.message);
                 render_production();
+                mark_loaded_and_maybe_rebuild("production");
             }
         });
 
@@ -636,13 +655,16 @@ frappe.pages['bricks2'].on_page_load = function (wrapper) {
                 }));
                 populate_material_filter();
                 render_material();
+                mark_loaded_and_maybe_rebuild("material");
             }
         });
 
-        load_summary_data();
+        load_summary_data(function () {
+            mark_loaded_and_maybe_rebuild("summary");
+        });
     }
 
-    function load_summary_data() {
+    function load_summary_data(on_complete) {
         frappe.call({
             method: "dashboard.dashboard.page.bricks2.bricks2.get_stock_balance_summary",
             args: {
@@ -654,6 +676,7 @@ frappe.pages['bricks2'].on_page_load = function (wrapper) {
                 summary_data = r.message || [];
                 populate_summary_filters();
                 render_summary_chart();
+                if (typeof on_complete === "function") on_complete();
             }
         });
     }
@@ -938,10 +961,10 @@ frappe.pages['bricks2'].on_page_load = function (wrapper) {
     }
 
 
-    // =========================
+// =========================
     // CHART 5: STOCK SUMMARY
     // =========================
-    function filter_for_summary(data) {
+function filter_for_summary(data) {
         return data.filter(d => {
             if (filters.warehouses.length && !filters.warehouses.includes(String(d.warehouse || "").toLowerCase())) return false;
             if (filters.brick_sizes.length && !filters.brick_sizes.includes(normalize_brick(d.item))) return false;
@@ -950,23 +973,32 @@ frappe.pages['bricks2'].on_page_load = function (wrapper) {
     }
 
     function render_summary_chart() {
+    // Each row in summary_data (one per company/item/warehouse) carries:
+    //   - opening_qty / in_qty / out_qty: movement within the selected
+    //     date range, computed server-side from Stock Ledger Entry
+    //   - bal_qty: the CURRENT on-hand balance, pulled server-side
+    //     straight from the Bin doctype (item_code + warehouse) for the
+    //     two brick items — not derived from ledger movement. It is
+    //     independent of from_date/to_date on purpose: it's "what's in
+    //     stock right now", not a running total as of to_date.
     let data = filter_for_summary(summary_data);
     let map = {};
 
     data.forEach(d => {
         let item = d.item || "Unknown";
         if (!map[item]) map[item] = { opening_qty: 0, in_qty: 0, out_qty: 0, bal_qty: 0 };
-        
+
         let opening = Number(d.opening_qty) || 0;
         let incoming = Number(d.in_qty) || 0;
         let outgoing = Number(d.out_qty) || 0;
+        let balance = Number(d.bal_qty) || 0; // Bin.actual_qty, from the server
 
         map[item].opening_qty += opening;
         map[item].in_qty += incoming;
         map[item].out_qty += outgoing;
-        
-        // Explicit Equation Calculation: Balance = Opening + In - Out
-        map[item].bal_qty = map[item].opening_qty + map[item].in_qty - map[item].out_qty;
+
+        // Sum Bin balances across warehouses for this item, floored at 0
+        map[item].bal_qty += Math.max(0, balance);
     });
 
     let keys = Object.keys(map);
@@ -1006,6 +1038,12 @@ frappe.pages['bricks2'].on_page_load = function (wrapper) {
     chart.on("click", function (params) {
         let nameKey = normalize_brick(params.name);
         let filtered = data.filter(d => normalize_brick(d.item) === nameKey);
+
+        // Ensure drilldown rows also keep Bin balance and prevent negatives
+        filtered.forEach(row => {
+            row.bal_qty = Math.max(0, Number(row.bal_qty) || 0);
+        });
+
         open_drilldown(
             "Stock Summary — " + params.name,
             ["item", "item_group", "warehouse", "opening_qty", "in_qty", "out_qty", "bal_qty"],
@@ -1013,7 +1051,6 @@ frappe.pages['bricks2'].on_page_load = function (wrapper) {
         );
     });
 }
-
     // =========================
     // RESIZE HANDLER
     // =========================
