@@ -1,6 +1,6 @@
-### Dashboard
+### dashboard
 
-All modules will be converted into insights
+llp-dashboard
 
 ### Installation
 
@@ -27,6 +27,14 @@ Pre-commit is configured to use the following tools for checking and formatting 
 - eslint
 - prettier
 - pyupgrade
+
+### CI
+
+This app can use GitHub Actions for CI. The following workflows are configured:
+
+- CI: Installs this app and runs unit tests on every push to `develop` branch.
+- Linters: Runs [Frappe Semgrep Rules](https://github.com/frappe/semgrep-rules) and [pip-audit](https://pypi.org/project/pip-audit/) on every pull request.
+
 
 ### License
 

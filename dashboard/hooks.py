@@ -1,6 +1,6 @@
 app_name = "dashboard"
 app_title = "Dashboard"
-app_publisher = "ILLINDA CHENNAKESAV"
+app_publisher = "Illinda Chennakesav"
 app_description = "All modules will be converted into insights"
 app_email = "chennakesav04@gmail.com"
 app_license = "mit"
@@ -15,7 +15,7 @@ app_license = "mit"
 # 	{
 # 		"name": "dashboard",
 # 		"logo": "/assets/dashboard/logo.png",
-# 		"title": "Dashboard",
+# 		"title": "dashboard",
 # 		"route": "/dashboard",
 # 		"has_permission": "dashboard.api.permission.has_app_permission"
 # 	}
@@ -26,9 +26,12 @@ app_license = "mit"
 
 # include js, css files in header of desk.html
 # app_include_css = "/assets/dashboard/css/dashboard.css"
+
 app_include_js = [
     "/assets/dashboard/js/echarts.min.js"
 ]
+
+# app_include_js = "/assets/dashboard/js/dashboard.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/dashboard/css/dashboard.css"
@@ -139,17 +142,13 @@ app_include_js = [
 # ---------------
 # Hook on document methods and events
 
-# Document Events
-# ---------------
-# Hook on document methods and events
-
 doc_events = {
-#     "*": {
-#         "on_update": "method",
-#         "on_cancel": "method",
-#         "on_trash": "method"
-#     },
-   "Page": { 
+# 	"*": {
+# 		"on_update": "method",
+# 		"on_cancel": "method",
+# 		"on_trash": "method"
+# 	},
+    "Page": { 
          "after_insert": "dashboard.utils.create_page_py"
      }
  }

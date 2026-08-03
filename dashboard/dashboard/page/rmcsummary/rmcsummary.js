@@ -298,17 +298,28 @@ function render_monthly(data) {
     });
 
     let months = Object.keys(map).sort((a, b) => {
-    return new Date(a) - new Date(b);
-});
+        return new Date(a) - new Date(b);
+    });
 
     if (charts.monthly) charts.monthly.dispose();
 
     charts.monthly = echarts.init(document.getElementById("chart_monthly"));
 
     charts.monthly.setOption({
-        title: { text: "Monthly Trend", left: "center" },
-        tooltip: { trigger: "axis" },
-        legend: { data: ["Qty", "Cost"] },
+        title: { text: "Monthly Trend [RMC Production]", left: "center" },
+        tooltip: { 
+            trigger: "axis",
+            formatter: function (params) {
+                let result = `${params[0].axisValue}<br/>`;
+                params.forEach(item => {
+                    let val = Number(item.value).toFixed(2);
+                    result += `${item.marker} ${item.seriesName}: <b>${val}</b><br/>`;
+                });
+                return result;
+            }
+        },
+        legend: { data: ["Qty", "Cost"], bottom: "0%" },
+        grid: { bottom: "15%" },
         xAxis: { type: "category", data: months },
         yAxis: { type: "value" },
         series: [
@@ -345,9 +356,20 @@ function render_grade_qty_cost(data) {
     charts.grade = echarts.init(document.getElementById("chart_grade_qty_cost"));
 
     charts.grade.setOption({
-        title: { text: "Grade Performance", left: "center" },
-        tooltip: { trigger: "axis" },
-        legend: { data: ["Qty", "Cost"] },
+        title: { text: "Grade Performance [RMC Production]", left: "center" },
+        tooltip: { 
+            trigger: "axis",
+            formatter: function (params) {
+                let result = `${params[0].axisValue}<br/>`;
+                params.forEach(item => {
+                    let val = Number(item.value).toFixed(2);
+                    result += `${item.marker} ${item.seriesName}: <b>${val}</b><br/>`;
+                });
+                return result;
+            }
+        },
+        legend: { data: ["Qty", "Cost"], bottom: "0%" },
+        grid: { bottom: "15%" },
         xAxis: { type: "category", data: grades },
         yAxis: { type: "value" },
         series: [
@@ -384,11 +406,18 @@ function render_warehouse(data) {
     charts.warehouse = echarts.init(document.getElementById("chart_warehouse"));
 
     charts.warehouse.setOption({
-        title: { text: "Warehouse by Qty", left: "center" },
-        tooltip: { trigger: "item" },
+        title: { text: "Warehouse by Qty [RMC Production]", left: "center" },
+        tooltip: { 
+            trigger: "item",
+            formatter: function (params) {
+                let val = Number(params.value).toFixed(2);
+                return `${params.marker} ${params.name}: <b>${val}</b> (${params.percent}%)`;
+            }
+        },
         series: [{
             type: "pie",
-            radius: "65%",
+            radius: ["35%", "55%"],
+            center: ["50%", "55%"],
             data: chartData
         }]
     });
@@ -422,9 +451,20 @@ function render_mix_raw(data) {
     charts.mix = echarts.init(document.getElementById("chart_mix_raw"));
 
     charts.mix.setOption({
-        title: { text: "MC vs RC Comparison", left: "center" },
-        tooltip: { trigger: "axis" },
-        legend: { data: ["Mixing Cost", "Raw Cost"] },
+        title: { text: "MixingCost vs RawCost [RMC Production]", left: "center" },
+        tooltip: { 
+            trigger: "axis",
+            formatter: function (params) {
+                let result = `${params[0].axisValue}<br/>`;
+                params.forEach(item => {
+                    let val = Number(item.value).toFixed(2);
+                    result += `${item.marker} ${item.seriesName}: <b>${val}</b><br/>`;
+                });
+                return result;
+            }
+        },
+        legend: { data: ["Mixing Cost", "Raw Cost"], bottom: "0%" },
+        grid: { bottom: "15%" },
         xAxis: { type: "category", data: grades },
         yAxis: { type: "value" },
         series: [

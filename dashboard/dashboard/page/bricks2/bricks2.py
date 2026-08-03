@@ -1,4 +1,6 @@
 import frappe
+from frappe.query_builder import DocType, Case, functions as fn
+
 
 # =========================
 # 📦 DELIVERY NOTES
@@ -28,6 +30,8 @@ def get_delivery_notes(from_date=None, to_date=None, customer=None, brick_size=N
     if company:
         conditions.append("LOWER(dn.company) = %(company)s")
         values["company"] = company.lower()
+
+    conditions.append('dni.item_code IN ("CEMENT BRICKS 9\\"X4\\"X3\\"", "CEMENT BRICKS 9\\"X6\\"X3\\"")')
 
     where_clause = " AND ".join(conditions)
     if where_clause:
@@ -71,6 +75,8 @@ def get_brick_production(company=None):
         conditions.append("LOWER(bp.company) = %(company)s")
         values["company"] = company.lower()
 
+    conditions.append('bp.brick_size IN ("CEMENT BRICKS 9\\"X4\\"X3\\"", "CEMENT BRICKS 9\\"X6\\"X3\\"")')
+
     where_clause = ""
     if conditions:
         where_clause = " AND " + " AND ".join(conditions)
@@ -106,6 +112,8 @@ def get_material_consumption(company=None):
     if company:
         conditions.append("LOWER(bp.company) = %(company)s")
         values["company"] = company.lower()
+
+    conditions.append('bp.brick_size IN ("CEMENT BRICKS 9\\"X4\\"X3\\"", "CEMENT BRICKS 9\\"X6\\"X3\\"")')
 
     where_clause = ""
     if conditions:
@@ -153,115 +161,57 @@ def _split_multi(value):
 
 
 # =========================
-# 📊 PRODUCTION VS SALES SUMMARY
+# 🧱 STOCK SUMMARY
 # =========================
+
 @frappe.whitelist()
-def get_production_vs_sales(from_date=None, to_date=None, company=None):
-    """
-    `company` may now be a single company name OR a comma-separated
-    list of company names (sent by the multi-select filter on the
-    dashboard). Both are supported for backwards compatibility.
-    """
+def get_stock_balance_summary(company: str, from_date: str, to_date: str):
+    sle = DocType("Stock Ledger Entry")
+    item = DocType("Item")
 
-    conditions_prod = []
-    conditions_sales = []
-
-    values = {}
-
-    # -------------------------
-    # Date Filters
-    # -------------------------
-    if from_date:
-        conditions_prod.append("bp.date >= %(from_date)s")
-        conditions_sales.append("dn.posting_date >= %(from_date)s")
-        values["from_date"] = from_date
-
-    if to_date:
-        conditions_prod.append("bp.date <= %(to_date)s")
-        conditions_sales.append("dn.posting_date <= %(to_date)s")
-        values["to_date"] = to_date
-
-    # -------------------------
-    # Company Filter (multi-select aware)
-    # -------------------------
-    companies = _split_multi(company)
-
-    if companies:
-        conditions_prod.append("LOWER(bp.company) IN %(companies)s")
-        conditions_sales.append("LOWER(dn.company) IN %(companies)s")
-        values["companies"] = tuple(companies)
-
-    # -------------------------
-    # WHERE CLAUSE
-    # -------------------------
-    prod_where = ""
-    sales_where = ""
-
-    if conditions_prod:
-        prod_where = " AND " + " AND ".join(conditions_prod)
-
-    if conditions_sales:
-        sales_where = " AND " + " AND ".join(conditions_sales)
-
-    # -------------------------
-    # QUERY
-    # -------------------------
-    query = f"""
-        WITH production AS (
-
-            SELECT
-                bp.company,
-                bp.brick_size AS item_code,
-                SUM(bp.produced_bricks) AS total_produced_qty
-
-            FROM `tabBrick Production` bp
-
-            WHERE bp.docstatus = 1
-            {prod_where}
-
-            GROUP BY bp.company, bp.brick_size
-        ),
-
-        sales AS (
-
-            SELECT
-                dn.company,
-                dni.item_code,
-                SUM(dni.qty) AS total_sold_qty
-
-            FROM `tabDelivery Note` dn
-
-            INNER JOIN `tabDelivery Note Item` dni
-                ON dni.parent = dn.name
-
-            WHERE dn.docstatus = 1
-            {sales_where}
-
-            GROUP BY dn.company, dni.item_code
+    query = (
+        frappe.qb.from_(sle)
+        .inner_join(item)
+        .on(sle.item_code == item.name)
+        .select(
+            sle.company,  # <--- Added company so it displays per company in results
+            sle.item_code.as_("item"),
+            item.item_group.as_("item_group"),
+            sle.warehouse,
+            
+            fn.Sum(
+                Case()
+                .when(sle.posting_date < from_date, sle.actual_qty)
+                .else_(0)
+            ).as_("opening_qty"),
+            
+            fn.Sum(
+                Case()
+                .when((sle.posting_date >= from_date) & (sle.posting_date <= to_date) & (sle.actual_qty > 0), sle.actual_qty)
+                .else_(0)
+            ).as_("in_qty"),
+            
+            fn.Sum(
+                Case()
+                .when((sle.posting_date >= from_date) & (sle.posting_date <= to_date) & (sle.actual_qty < 0), -sle.actual_qty)
+                .else_(0)
+            ).as_("out_qty"),
+            
+            fn.Sum(
+                Case()
+                .when(sle.posting_date <= to_date, sle.actual_qty)
+                .else_(0)
+            ).as_("bal_qty"),
         )
+        .where((sle.docstatus < 2) & (sle.is_cancelled == 0) & (sle.item_code.isin(['CEMENT BRICKS 9"X4"X3"', 'CEMENT BRICKS 9"X6"X3"'])))
+    )
 
-        SELECT
+    if company:
+        companies = [c.strip() for c in company.split(',')]
+        query = query.where(sle.company.isin(companies))
 
-            COALESCE(p.item_code, s.item_code) AS item,
-            COALESCE(p.company, s.company) AS company,
+    # Group by company as well so rows split properly by company
+    query = query.groupby(sle.company, sle.item_code, item.item_group, sle.warehouse)
 
-            IFNULL(p.total_produced_qty, 0) AS produced_qty,
+    return query.run(as_dict=True)
 
-            IFNULL(s.total_sold_qty, 0) AS sold_qty,
-
-            (
-                IFNULL(p.total_produced_qty, 0)
-                -
-                IFNULL(s.total_sold_qty, 0)
-            ) AS balance_qty
-
-        FROM production p
-
-        LEFT JOIN sales s
-            ON p.item_code = s.item_code
-            AND p.company = s.company
-
-        ORDER BY item ASC
-    """
-
-    return frappe.db.sql(query, values, as_dict=True)

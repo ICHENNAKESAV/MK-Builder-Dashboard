@@ -1,4 +1,4 @@
-frappe.pages['bricks2'].on_page_load = function(wrapper) {
+frappe.pages['bricks2'].on_page_load = function (wrapper) {
 
     let page = frappe.ui.make_app_page({
         parent: wrapper,
@@ -24,35 +24,36 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
 
     let today = frappe.datetime.get_today();
 
-    let delivery_data   = [];
+    let delivery_data = [];
     let production_data = [];
-    let material_data   = [];
-    let summary_data    = [];
+    let material_data = [];
+    let summary_data = [];
 
     let charts = {
-        customer:   null,
-        brickSize:  null,
+        customer: null,
+        brickSize: null,
         production: null,
-        material:   null,
-        summary:    null
+        material: null,
+        summary: null
     };
 
-    // filters now hold ARRAYS for multi-select fields
     let filters = {
-        from_date:     "2025-12-09",
-        to_date:       today,
-        customers:     [],
-        brick_sizes:   [],
-        companies:     [],
-        raw_materials: []
+        from_date: "2025-12-09",
+        to_date: today,
+        customers: [],
+        brick_sizes: [],
+        companies: [],
+        raw_materials: [],
+        warehouses: []
     };
 
     // Definition of every multi-select filter: key -> {label, elId}
     const MULTI_FILTERS = [
-        { key: "customers",     label: "Customer",     placeholder: "All Customers" },
-        { key: "brick_sizes",   label: "Brick Size",   placeholder: "All Brick Sizes" },
-        { key: "companies",     label: "Company",      placeholder: "All Companies" },
-        { key: "raw_materials", label: "Raw Material",  placeholder: "All Materials" }
+        { key: "customers", label: "Customer", placeholder: "All Customers" },
+        { key: "brick_sizes", label: "Brick Size", placeholder: "All Brick Sizes" },
+        { key: "companies", label: "Company", placeholder: "All Companies" },
+        { key: "raw_materials", label: "Raw Material", placeholder: "All Materials" },
+        { key: "warehouses", label: "Warehouse", placeholder: "All Warehouses" }
     ];
 
     $(page.body).html(`
@@ -269,9 +270,9 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
                     <div class="title">&#129514; Raw Material</div>
                     <div id="materialChart" style="height:380px;width:100%;"></div>
                 </div>
-                <div class="card-box" style="grid-column:1/-1;">
-                    <div class="title">&#128202; Production vs Sales Summary</div>
-                    <div id="summaryChart" style="height:clamp(300px,40vw,500px);width:100%;"></div>
+                <div class="card-box" style="grid-column: 1 / -1;">
+                    <div class="title">&#128202; Stock Balance Summary</div>
+                    <div id="summaryChart" style="height:380px;width:100%;"></div>
                 </div>
             </div>
         </div>
@@ -292,22 +293,22 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     function normalize_delivery(rows) {
         return (rows || []).map(d => ({
             ...d,
-            brick_size:    String(d.brick_size    || "").trim(),
+            brick_size: String(d.brick_size || "").trim(),
             customer_name: String(d.customer_name || "").trim(),
-            company:       String(d.company       || "").trim(),
-            _brick_key:    normalize_brick(d.brick_size),
+            company: String(d.company || "").trim(),
+            _brick_key: normalize_brick(d.brick_size),
             _customer_key: String(d.customer_name || "").trim().toLowerCase(),
-            _company_key:  String(d.company       || "").trim().toLowerCase()
+            _company_key: String(d.company || "").trim().toLowerCase()
         }));
     }
 
     function normalize_production(rows) {
         return (rows || []).map(d => ({
             ...d,
-            brick_size:   String(d.brick_size || "").trim(),
-            company:      String(d.company    || "").trim(),
-            _brick_key:   normalize_brick(d.brick_size),
-            _company_key: String(d.company    || "").trim().toLowerCase()
+            brick_size: String(d.brick_size || "").trim(),
+            company: String(d.company || "").trim(),
+            _brick_key: normalize_brick(d.brick_size),
+            _company_key: String(d.company || "").trim().toLowerCase()
         }));
     }
 
@@ -387,10 +388,10 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         // options: [{label, value}]
         ms_options_cache[key] = options;
 
-        let $filter  = $(`.ms-filter[data-key="${key}"]`);
-        let $panel   = $filter.find(".ms-panel");
+        let $filter = $(`.ms-filter[data-key="${key}"]`);
+        let $panel = $filter.find(".ms-panel");
         let $optWrap = $filter.find(".ms-options");
-        let $search  = $filter.find(".ms-search");
+        let $search = $filter.find(".ms-search");
 
         function render_options(filterText) {
             let text = (filterText || "").toLowerCase();
@@ -415,11 +416,11 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         render_options("");
         update_control_label(key);
 
-        $search.off("input").on("input", function() {
+        $search.off("input").on("input", function () {
             render_options($(this).val());
         });
 
-        $optWrap.off("click", ".ms-option").on("click", ".ms-option", function(e) {
+        $optWrap.off("click", ".ms-option").on("click", ".ms-option", function (e) {
             e.preventDefault();
             let $cb = $(this).find("input");
             let val = $cb.val();
@@ -435,7 +436,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             on_filters_changed(key);
         });
 
-        $filter.find(".ms-all").off("click").on("click", function(e) {
+        $filter.find(".ms-all").off("click").on("click", function (e) {
             e.preventDefault();
             filters[key] = options.map(o => o.value);
             render_options($search.val());
@@ -444,7 +445,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             on_filters_changed(key);
         });
 
-        $filter.find(".ms-clear").off("click").on("click", function(e) {
+        $filter.find(".ms-clear").off("click").on("click", function (e) {
             e.preventDefault();
             filters[key] = [];
             render_options($search.val());
@@ -453,7 +454,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
             on_filters_changed(key);
         });
 
-        $filter.find(".ms-control").off("click").on("click", function(e) {
+        $filter.find(".ms-control").off("click").on("click", function (e) {
             e.stopPropagation();
             let is_open = $panel.hasClass("open");
             $(".ms-panel").removeClass("open");
@@ -487,7 +488,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     }
 
     // Close any open dropdown when clicking outside
-    $(document).off("click.msdropdown").on("click.msdropdown", function() {
+    $(document).off("click.msdropdown").on("click.msdropdown", function () {
         $(".ms-panel").removeClass("open");
         $(".ms-control").removeClass("active");
     });
@@ -509,7 +510,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
 
         $chips.html(html);
 
-        $chips.off("click", ".chip-x").on("click", ".chip-x", function() {
+        $chips.off("click", ".chip-x").on("click", ".chip-x", function () {
             let $chip = $(this).closest(".chip");
             let key = $chip.data("key");
             let val = String($chip.data("val"));
@@ -534,8 +535,11 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         } else if (changed_key === "brick_sizes") {
             render_customer();
             render_production();
+            render_summary_chart();
         } else if (changed_key === "raw_materials") {
             render_material();
+        } else if (changed_key === "warehouses") {
+            render_summary_chart();
         } else {
             render_all();
         }
@@ -548,10 +552,10 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         return data.filter(d => {
             let date = String(d.date || d.posting_date || "");
             if (filters.from_date && date < filters.from_date) return false;
-            if (filters.to_date   && date > filters.to_date)   return false;
-            if (filters.customers.length     && !filters.customers.includes(d._customer_key)) return false;
-            if (filters.brick_sizes.length   && !filters.brick_sizes.includes(d._brick_key))   return false;
-            if (filters.companies.length     && !filters.companies.includes(d._company_key))   return false;
+            if (filters.to_date && date > filters.to_date) return false;
+            if (filters.customers.length && !filters.customers.includes(d._customer_key)) return false;
+            if (filters.brick_sizes.length && !filters.brick_sizes.includes(d._brick_key)) return false;
+            if (filters.companies.length && !filters.companies.includes(d._company_key)) return false;
             return true;
         });
     }
@@ -560,9 +564,9 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         return data.filter(d => {
             let date = String(d.date || d.posting_date || "");
             if (filters.from_date && date < filters.from_date) return false;
-            if (filters.to_date   && date > filters.to_date)   return false;
+            if (filters.to_date && date > filters.to_date) return false;
             if (filters.customers.length && !filters.customers.includes(d._customer_key)) return false;
-            if (filters.companies.length && !filters.companies.includes(d._company_key))  return false;
+            if (filters.companies.length && !filters.companies.includes(d._company_key)) return false;
             return true;
         });
     }
@@ -571,8 +575,8 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         return data.filter(d => {
             let date = String(d.date || "");
             if (filters.from_date && date < filters.from_date) return false;
-            if (filters.to_date   && date > filters.to_date)   return false;
-            if (filters.companies.length   && !filters.companies.includes(d._company_key)) return false;
+            if (filters.to_date && date > filters.to_date) return false;
+            if (filters.companies.length && !filters.companies.includes(d._company_key)) return false;
             if (filters.brick_sizes.length && !filters.brick_sizes.includes(d._brick_key)) return false;
             return true;
         });
@@ -582,7 +586,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         return data.filter(d => {
             let date = String(d.date || "");
             if (filters.from_date && date < filters.from_date) return false;
-            if (filters.to_date   && date > filters.to_date)   return false;
+            if (filters.to_date && date > filters.to_date) return false;
             if (filters.companies.length && !filters.companies.includes(d._company_key)) return false;
             if (filters.raw_materials.length &&
                 !filters.raw_materials.includes(String(d.raw_material || "").toLowerCase())) return false;
@@ -606,7 +610,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
 
         frappe.call({
             method: "dashboard.dashboard.page.bricks2.bricks2.get_delivery_notes",
-            callback: function(r) {
+            callback: function (r) {
                 delivery_data = normalize_delivery(r.message);
                 populate_filters();
                 render_customer();
@@ -616,7 +620,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
 
         frappe.call({
             method: "dashboard.dashboard.page.bricks2.bricks2.get_brick_production",
-            callback: function(r) {
+            callback: function (r) {
                 production_data = normalize_production(r.message);
                 render_production();
             }
@@ -624,10 +628,10 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
 
         frappe.call({
             method: "dashboard.dashboard.page.bricks2.bricks2.get_material_consumption",
-            callback: function(r) {
+            callback: function (r) {
                 material_data = (r.message || []).map(d => ({
                     ...d,
-                    company:      String(d.company || "").trim(),
+                    company: String(d.company || "").trim(),
                     _company_key: String(d.company || "").trim().toLowerCase()
                 }));
                 populate_material_filter();
@@ -640,43 +644,66 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
 
     function load_summary_data() {
         frappe.call({
-            method: "dashboard.dashboard.page.bricks2.bricks2.get_production_vs_sales",
+            method: "dashboard.dashboard.page.bricks2.bricks2.get_stock_balance_summary",
             args: {
                 from_date: filters.from_date,
-                to_date:   filters.to_date,
-                company:   filters.companies.join(",")
+                to_date: filters.to_date,
+                company: filters.companies.join(",")
             },
-            callback: function(r) {
+            callback: function (r) {
                 summary_data = r.message || [];
+                populate_summary_filters();
                 render_summary_chart();
             }
         });
     }
 
+    function populate_summary_filters() {
+        let warehouses = [...new Set(summary_data.map(d => d.warehouse).filter(Boolean))].sort();
+
+        build_multiselect("warehouses", warehouses.map(w => ({ label: w, value: w.toLowerCase() })));
+
+        // Rebuild company filter with data from ALL sources
+        rebuild_company_filter();
+    }
+
     // =========================
     // POPULATE DROPDOWNS
     // =========================
+    // Rebuild company filter from ALL data sources (delivery, production, material, summary)
+    function rebuild_company_filter() {
+        let companies = new Set();
+        (delivery_data || []).forEach(d => { if (d.company) companies.add(d.company.trim()); });
+        (production_data || []).forEach(d => { if (d.company) companies.add(d.company.trim()); });
+        (material_data || []).forEach(d => { if (d.company) companies.add(d.company.trim()); });
+        (summary_data || []).forEach(d => { if (d.company) companies.add(d.company.trim()); });
+        companies = [...companies].sort();
+        build_multiselect("companies", companies.map(c => ({ label: c, value: c.toLowerCase() })));
+    }
+
     function populate_filters() {
 
         let customers = [...new Set(delivery_data.map(d => d.customer_name).filter(Boolean))].sort();
-        let bricks    = [...new Set(delivery_data.map(d => d.brick_size).filter(Boolean))].sort();
-        let companies = [...new Set(delivery_data.map(d => d.company).filter(Boolean))].sort();
+        let bricks = [...new Set(delivery_data.map(d => d.brick_size).filter(Boolean))].sort();
 
         build_multiselect("customers", customers.map(c => ({ label: c, value: c.toLowerCase() })));
         build_multiselect("brick_sizes", bricks.map(b => ({ label: b, value: normalize_brick(b) })));
+
+        // Initial company build from delivery_data; will be rebuilt once all data loads
+        let companies = [...new Set(delivery_data.map(d => d.company).filter(Boolean))].sort();
         build_multiselect("companies", companies.map(c => ({ label: c, value: c.toLowerCase() })));
 
         $("#from_date").val(filters.from_date);
         $("#to_date").val(filters.to_date);
 
-        $("#from_date, #to_date").off("change").on("change", function() {
+        $("#from_date, #to_date").off("change").on("change", function () {
             filters.from_date = $("#from_date").val() || null;
-            filters.to_date   = $("#to_date").val()   || null;
+            filters.to_date = $("#to_date").val() || null;
             render_all();
         });
 
-        $("#clear_filters").off("click").on("click", function() {
-            filters = { from_date: null, to_date: null, customers: [], brick_sizes: [], companies: [], raw_materials: [] };
+        $("#clear_filters").off("click").on("click", function () {
+            filters = { from_date: null, to_date: null, customers: [], brick_sizes: [], companies: [], raw_materials: [], warehouses: [] };
             $("#from_date").val("");
             $("#to_date").val("");
             MULTI_FILTERS.forEach(f => update_control_label(f.key));
@@ -697,8 +724,8 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     function format_short_number(value) {
         value = Number(value || 0);
         if (value >= 10000000) return (value / 10000000).toFixed(2) + " Cr";
-        if (value >= 100000)   return (value / 100000).toFixed(2)   + " L";
-        if (value >= 1000)     return (value / 1000).toFixed(2)     + " K";
+        if (value >= 100000) return (value / 100000).toFixed(2) + " L";
+        if (value >= 1000) return (value / 1000).toFixed(2) + " K";
         return value.toFixed(2);
     }
 
@@ -715,21 +742,21 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     // =========================
     function render_customer() {
         let data = filter_for_customer(delivery_data);
-        let map  = {};
+        let map = {};
         data.forEach(d => {
             let c = d.customer_name || "No Customer";
             if (!map[c]) map[c] = { qty: 0, amount: 0 };
-            map[c].qty    += Number(d.quantity)     || 0;
+            map[c].qty += Number(d.quantity) || 0;
             map[c].amount += Number(d.grand_amount) || 0;
         });
 
-        let keys  = Object.keys(map);
+        let keys = Object.keys(map);
         let chart = get_chart("customer", "customerChart");
 
         chart.setOption({
             tooltip: { trigger: "axis", formatter: tooltipFormatter },
-            legend:  { data: ["Qty", "Grand Amount"] },
-            grid:    { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
+            legend: { data: ["Qty", "Grand Amount"] },
+            grid: { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
             xAxis: {
                 type: "category",
                 data: keys,
@@ -751,8 +778,8 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         });
 
         chart.off("click");
-        chart.on("click", function(params) {
-            let nameKey  = params.name.toLowerCase();
+        chart.on("click", function (params) {
+            let nameKey = params.name.toLowerCase();
             let filtered = data.filter(d => d._customer_key === nameKey);
             open_drilldown(
                 "Delivery Notes — " + params.name,
@@ -767,21 +794,21 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     // =========================
     function render_brick_size() {
         let data = filter_for_brick_size(delivery_data);
-        let map  = {};
+        let map = {};
         data.forEach(d => {
             let s = d.brick_size || "Unknown";
             if (!map[s]) map[s] = { qty: 0, amount: 0 };
-            map[s].qty    += Number(d.quantity)     || 0;
+            map[s].qty += Number(d.quantity) || 0;
             map[s].amount += Number(d.grand_amount) || 0;
         });
 
-        let keys  = Object.keys(map);
+        let keys = Object.keys(map);
         let chart = get_chart("brickSize", "brickSizeChart");
 
         chart.setOption({
             tooltip: { trigger: "axis", formatter: tooltipFormatter },
-            legend:  { data: ["Qty", "Grand Amount"] },
-            grid:    { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
+            legend: { data: ["Qty", "Grand Amount"] },
+            grid: { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
             xAxis: {
                 type: "category",
                 data: keys,
@@ -803,8 +830,8 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         });
 
         chart.off("click");
-        chart.on("click", function(params) {
-            let nameKey  = normalize_brick(params.name);
+        chart.on("click", function (params) {
+            let nameKey = normalize_brick(params.name);
             let filtered = data.filter(d => d._brick_key === nameKey);
             open_drilldown(
                 "Brick Size Details — " + params.name,
@@ -819,21 +846,21 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     // =========================
     function render_production() {
         let data = filter_for_production(production_data);
-        let map  = {};
+        let map = {};
         data.forEach(d => {
             let key = d.brick_size || "Unknown";
             if (!map[key]) map[key] = { produced_bricks: 0, total_production_cost: 0 };
-            map[key].produced_bricks       += Number(d.produced_bricks)       || 0;
+            map[key].produced_bricks += Number(d.produced_bricks) || 0;
             map[key].total_production_cost += Number(d.total_production_cost) || 0;
         });
 
-        let keys  = Object.keys(map);
+        let keys = Object.keys(map);
         let chart = get_chart("production", "productionChart");
 
         chart.setOption({
             tooltip: { trigger: "axis", formatter: tooltipFormatter },
-            legend:  { data: ["Produced Bricks", "Total Cost"] },
-            grid:    { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
+            legend: { data: ["Produced Bricks", "Total Cost"] },
+            grid: { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
             xAxis: {
                 type: "category",
                 data: keys,
@@ -855,8 +882,8 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         });
 
         chart.off("click");
-        chart.on("click", function(params) {
-            let nameKey  = normalize_brick(params.name);
+        chart.on("click", function (params) {
+            let nameKey = normalize_brick(params.name);
             let filtered = data.filter(d => d._brick_key === nameKey);
             open_drilldown(
                 "Production Details — " + params.name,
@@ -871,13 +898,13 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
     // =========================
     function render_material() {
         let data = filter_for_material(material_data);
-        let map  = {};
+        let map = {};
         data.forEach(d => {
-            let m  = d.raw_material || "Unknown";
+            let m = d.raw_material || "Unknown";
             map[m] = (map[m] || 0) + (Number(d.quantity) || 0);
         });
 
-        let keys  = Object.keys(map);
+        let keys = Object.keys(map);
         let chart = get_chart("material", "materialChart");
 
         chart.setOption({
@@ -885,7 +912,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
                 trigger: "axis",
                 formatter: p => `${p[0].name}<br/>Qty (MT): ${Number(p[0].value).toFixed(3)}`
             },
-            grid:  { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
+            grid: { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
             xAxis: {
                 type: "category",
                 data: keys,
@@ -900,7 +927,7 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         });
 
         chart.off("click");
-        chart.on("click", function(params) {
+        chart.on("click", function (params) {
             let filtered = data.filter(d => (d.raw_material || "Unknown") === params.name);
             open_drilldown(
                 "Material Details — " + params.name,
@@ -910,109 +937,88 @@ frappe.pages['bricks2'].on_page_load = function(wrapper) {
         });
     }
 
+
     // =========================
-    // CHART 5: PRODUCTION vs SALES SUMMARY
+    // CHART 5: STOCK SUMMARY
     // =========================
-    function render_summary_chart() {
-
-        let data = summary_data || [];
-
-        let items = data.map(d => d.item);
-        let produced_qty = data.map(d => Number(d.produced_qty || 0));
-        let sold_qty = data.map(d => Number(d.sold_qty || 0));
-        let balance_qty = data.map(d => Number(d.balance_qty || 0));
-
-        let chart = get_chart("summary", "summaryChart");
-
-        chart.setOption({
-            tooltip: {
-                trigger: "axis",
-                axisPointer: { type: "shadow" },
-                formatter: tooltipFormatter
-            },
-
-            legend: {
-                data: ["Produced Qty", "Sold Qty", "Balance Qty"]
-            },
-
-            grid: {
-                left: 60,
-                right: 20,
-                bottom: 80,
-                top: 50,
-                containLabel: true
-            },
-
-            xAxis: {
-                type: "category",
-                data: items,
-                axisLabel: {
-                    rotate: items.length > 5 ? 30 : 0,
-                    fontSize: 11
-                }
-            },
-
-            yAxis: {
-                type: "value"
-            },
-
-            series: [
-                {
-                    name: "Produced Qty",
-                    type: "bar",
-                    data: produced_qty,
-                    label: {
-                        show: true,
-                        position: "inside",
-                        formatter: p => format_short_number(p.value),
-                        color: "#fff",
-                        fontSize: 10
-                    }
-                },
-                {
-                    name: "Sold Qty",
-                    type: "bar",
-                    data: sold_qty,
-                    label: {
-                        show: true,
-                        position: "inside",
-                        formatter: p => format_short_number(p.value),
-                        color: "#fff",
-                        fontSize: 10
-                    }
-                },
-                {
-                    name: "Balance Qty",
-                    type: "bar",
-                    data: balance_qty,
-                    label: {
-                        show: true,
-                        position: "inside",
-                        formatter: p => format_short_number(p.value),
-                        color: "#fff",
-                        fontSize: 10
-                    }
-                }
-            ]
-        });
-
-        chart.off("click");
-
-        chart.on("click", function(params) {
-            let row = data.filter(d => d.item === params.name);
-            open_drilldown(
-                "Production vs Sales — " + params.name,
-                ["item", "company", "produced_qty", "sold_qty", "balance_qty"],
-                row
-            );
+    function filter_for_summary(data) {
+        return data.filter(d => {
+            if (filters.warehouses.length && !filters.warehouses.includes(String(d.warehouse || "").toLowerCase())) return false;
+            if (filters.brick_sizes.length && !filters.brick_sizes.includes(normalize_brick(d.item))) return false;
+            return true;
         });
     }
+
+    function render_summary_chart() {
+    let data = filter_for_summary(summary_data);
+    let map = {};
+
+    data.forEach(d => {
+        let item = d.item || "Unknown";
+        if (!map[item]) map[item] = { opening_qty: 0, in_qty: 0, out_qty: 0, bal_qty: 0 };
+        
+        let opening = Number(d.opening_qty) || 0;
+        let incoming = Number(d.in_qty) || 0;
+        let outgoing = Number(d.out_qty) || 0;
+
+        map[item].opening_qty += opening;
+        map[item].in_qty += incoming;
+        map[item].out_qty += outgoing;
+        
+        // Explicit Equation Calculation: Balance = Opening + In - Out
+        map[item].bal_qty = map[item].opening_qty + map[item].in_qty - map[item].out_qty;
+    });
+
+    let keys = Object.keys(map);
+    let chart = get_chart("summary", "summaryChart");
+
+    chart.setOption({
+        tooltip: { trigger: "axis", formatter: tooltipFormatter },
+        legend: { data: ["In Qty", "Out Qty", "Balance Qty"] },
+        grid: { left: 60, right: 20, bottom: 60, top: 40, containLabel: true },
+        xAxis: {
+            type: "category",
+            data: keys,
+            axisLabel: { rotate: keys.length > 5 ? 30 : 0, fontSize: 11 }
+        },
+        yAxis: { type: "value" },
+        series: [
+            {
+                name: "In Qty", type: "bar",
+                data: keys.map(k => parseFloat(Number(map[k].in_qty).toFixed(2))),
+                label: { show: true, position: "inside", formatter: p => format_short_number(p.value), fontSize: 10, color: "#090909" }
+            },
+            {
+                name: "Out Qty", type: "bar",
+                data: keys.map(k => parseFloat(Number(map[k].out_qty).toFixed(2))),
+                label: { show: true, position: "inside", formatter: p => format_short_number(p.value), fontSize: 10, color: "#000000" }
+            },
+            {
+                name: "Balance Qty", type: "bar",
+                data: keys.map(k => parseFloat(Number(map[k].bal_qty).toFixed(2))),
+                label: { show: true, position: "top", formatter: p => format_short_number(p.value), fontSize: 10, color: "#e74c3c" },
+                itemStyle: { color: "#e74c3c" }
+            }
+        ]
+    });
+
+    chart.off("click");
+    chart.on("click", function (params) {
+        let nameKey = normalize_brick(params.name);
+        let filtered = data.filter(d => normalize_brick(d.item) === nameKey);
+        open_drilldown(
+            "Stock Summary — " + params.name,
+            ["item", "item_group", "warehouse", "opening_qty", "in_qty", "out_qty", "bal_qty"],
+            filtered
+        );
+    });
+}
 
     // =========================
     // RESIZE HANDLER
     // =========================
-    window.addEventListener('resize', function() {
-        Object.values(charts).forEach(function(c) { if (c) c.resize(); });
+    window.addEventListener('resize', function () {
+        Object.values(charts).forEach(function (c) { if (c) c.resize(); });
     });
 
     load_all();

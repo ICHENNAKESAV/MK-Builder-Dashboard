@@ -1,3 +1,34 @@
+Skip to content
+ICHENNAKESAV
+MK-Builder-Dashboard
+Repository navigation
+Code
+Issues
+Pull requests
+Agents
+Actions
+Projects
+Security and quality
+Insights
+Settings
+MK-Builder-Dashboard
+/pyproject.toml
+Go to file
+t
+T
+ICHENNAKESAV
+ICHENNAKESAV
+Add Frappe Version
+34ead7f
+ · 
+5 days ago
+MK-Builder-Dashboard
+/pyproject.toml
+
+Code
+
+Blame
+59 lines (53 loc) · 1.03 KB
 [project]
 name = "dashboard"
 authors = [
@@ -56,4 +87,9 @@ typing-modules = ["frappe.types.DF"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "tab"
+<<<<<<< HEAD
 docstring-code-format = true
+=======
+docstring-code-format = true
+ 
+>>>>>>> 26b6d9d (Update dashboard code and remove local workflows)
