@@ -1,6 +1,6 @@
 ### dashboard
 
-llp-dashboard
+dashboard
 
 ### Installation
 
