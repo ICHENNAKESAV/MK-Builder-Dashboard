@@ -33,14 +33,14 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
             <div class="row">
                 <div class="col-md-6">
                     <div class="rmc-card">
-                        <div class="rmc-title">EQ VS AQ Comparison</div>
+                        <div class="rmc-title">Estimated Qty VS Actual Qty Comparison</div>
                         <div id="chart_qty" class="chart-box"></div>
                     </div>
                 </div>
 
                 <div class="col-md-6">
                     <div class="rmc-card">
-                        <div class="rmc-title">EC VS AC Comparison</div>
+                        <div class="rmc-title">Estimated Cost VS Actual Cost Comparison</div>
                         <div id="chart_cost" class="chart-box"></div>
                     </div>
                 </div>
@@ -49,15 +49,15 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
             <div class="row">
                 <div class="col-md-6">
                     <div class="rmc-card">
-                        <div class="rmc-title">Cost Difference</div>
-                        <div id="chart_cost_diff" class="chart-box"></div>
+                        <div class="rmc-title">Quantity Difference</div>
+                        <div id="chart_qty_diff" class="chart-box"></div>
                     </div>
                 </div>
 
                 <div class="col-md-6">
                     <div class="rmc-card">
-                        <div class="rmc-title">Quantity Difference</div>
-                        <div id="chart_qty_diff" class="chart-box"></div>
+                        <div class="rmc-title">Cost Difference</div>
+                        <div id="chart_cost_diff" class="chart-box"></div>
                     </div>
                 </div>
             </div>
@@ -254,6 +254,12 @@ frappe.pages['rmcvariance'].on_page_load = function (wrapper) {
                 series
             };
         }
+
+        // Initialize ECharts instances safely, checking if already initialized
+        if (charts.qty) { charts.qty.dispose(); }
+        if (charts.cost) { charts.cost.dispose(); }
+        if (charts.cost_diff) { charts.cost_diff.dispose(); }
+        if (charts.qty_diff) { charts.qty_diff.dispose(); }
 
         charts.qty = echarts.init(document.getElementById('chart_qty'));
         charts.cost = echarts.init(document.getElementById('chart_cost'));
