@@ -451,7 +451,7 @@ function render_mix_raw(data) {
     charts.mix = echarts.init(document.getElementById("chart_mix_raw"));
 
     charts.mix.setOption({
-        title: { text: "MixingCost vs RawCost [RMC Production]", left: "center" },
+        title: { text: "MixingCost vs Raw Material[RMC Production]", left: "center" },
         tooltip: { 
             trigger: "axis",
             formatter: function (params) {
