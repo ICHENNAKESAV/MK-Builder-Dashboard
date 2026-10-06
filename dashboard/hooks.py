@@ -142,16 +142,7 @@ app_include_js = [
 # ---------------
 # Hook on document methods and events
 
-doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	},
-    "Page": { 
-         "after_insert": "dashboard.utils.create_page_py"
-     }
- }
+doc_events = {}
 
 # Scheduled Tasks
 # ---------------
