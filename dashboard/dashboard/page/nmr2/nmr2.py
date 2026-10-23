@@ -48,7 +48,7 @@ def get_nmr_daily_summary_report_data(filters=None):
         filters = json.loads(filters)
     filters = filters or {}
 
-    # Define report columns (Optional for standard Frappe Reports, but harmless)
+    # Define report columns
     columns = [
         {"fieldname": "date", "label": "Date", "fieldtype": "Date", "width": 110},
         {"fieldname": "project", "label": "Project", "fieldtype": "Data", "width": 140},
@@ -59,21 +59,22 @@ def get_nmr_daily_summary_report_data(filters=None):
         {"fieldname": "work_start_time", "label": "Start Time", "fieldtype": "Time", "width": 100},
         {"fieldname": "work_end_time", "label": "End Time", "fieldtype": "Time", "width": 100},
         {"fieldname": "total_hours", "label": "Total Hours", "fieldtype": "Float", "width": 100},
-        {"fieldname": "ot_hours", "label": "OT Hours", "fieldtype": "Float", "width": 100}
+        {"fieldname": "ot_hours", "label": "OT Hours", "fieldtype": "Float", "width": 100},
+        {"fieldname": "total_amount", "label": "Total Amount", "fieldtype": "Currency", "width": 130}
     ]
 
     # Define DocTypes using Query Builder
     nmr_master = frappe.qb.DocType("NMR Master Worksheet")
     nmr_detail = frappe.qb.DocType("NMR Worksheet Detail")
 
-    # Construct the base query
+    # Construct the query
     query = (
         frappe.qb.from_(nmr_master)
         .inner_join(nmr_detail)
         .on(nmr_master.name == nmr_detail.parent)
         .select(
             nmr_master.date.as_("date"),
-            nmr_master.project.as_("project"),  # Added so the frontend can filter by Project
+            nmr_master.project.as_("project"),
             nmr_detail.required_area.as_("required_area"),
             nmr_master.supplier.as_("contractor"),
             nmr_detail.labor_category.as_("nmr_category"),
@@ -81,7 +82,8 @@ def get_nmr_daily_summary_report_data(filters=None):
             nmr_detail.work_start_time.as_("work_start_time"),
             nmr_detail.work_end_time.as_("work_end_time"),
             nmr_detail.total_hours.as_("total_hours"),
-            nmr_detail.ot_hours.as_("ot_hours")
+            nmr_detail.ot_hours.as_("ot_hours"),
+            nmr_detail.total_amount.as_("total_amount")
         )
         .where(nmr_master.docstatus == 1)
         .orderby(nmr_master.date, order=frappe.qb.desc)

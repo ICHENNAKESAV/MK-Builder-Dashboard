@@ -91,27 +91,48 @@ frappe.pages['nmr2'].on_page_load = function(wrapper) {
             <div style="display: flex; flex-wrap: wrap; gap: 20px; padding-bottom: 20px;">
                 <div class="chart-card"><div id="chart-amount" class="chart-container"></div></div>
                 <div class="chart-card"><div id="chart-category" class="chart-container"></div></div>
-                <div class="chart-card full-width"><div id="chart-hours" class="chart-container"></div></div>
+                <div id="chart-nature-amount" class="chart-container"></div>
             </div>
         </div>
 
-        <!-- TAB 2: Summary Report (9 Charts) -->
+        <!-- TAB 2: Summary Report (8 Charts) -->
         <div id="tab-summary" class="tab-content">
             <div style="display: flex; flex-wrap: wrap; gap: 20px; padding-bottom: 20px;">
                 <!-- Row 1 -->
-                <div class="chart-card"><div id="chart-daily-manpower" class="chart-container"></div></div>
-                <div class="chart-card"><div id="chart-daily-hours" class="chart-container"></div></div>
-                <!-- Row 2 -->
-                <div class="chart-card"><div id="chart-area-hours" class="chart-container"></div></div>
-                <div class="chart-card"><div id="chart-area-allocation" class="chart-container"></div></div>
-                <!-- Row 3 -->
-                <div class="chart-card"><div id="chart-labor-distribution" class="chart-container"></div></div>
-                <div class="chart-card"><div id="chart-manpower-contractor" class="chart-container"></div></div>
-                <!-- Row 4 -->
-                <div class="chart-card"><div id="chart-ot-share" class="chart-container"></div></div>
-                <!-- Row 5 (Full Width Stacked) -->
-                <div class="chart-card full-width"><div id="chart-area-contractor-stacked" class="chart-container"></div></div>
-                <div class="chart-card full-width"><div id="chart-daily-category-stacked" class="chart-container"></div></div>
+        <div class="chart-card">
+            <div id="chart-daily-manpower" class="chart-container"></div>
+        </div>
+
+        <div class="chart-card">
+            <div id="chart-daily-amount" class="chart-container"></div>
+        </div>
+
+        <!-- Row 2 -->
+        <div class="chart-card">
+            <div id="chart-project-manpower" class="chart-container"></div>
+        </div>
+
+        <div class="chart-card">
+            <div id="chart-project-amount" class="chart-container"></div>
+        </div>
+
+        <!-- Row 3 -->
+        <div class="chart-card">
+            <div id="chart-category-manpower" class="chart-container"></div>
+        </div>
+
+        <div class="chart-card">
+            <div id="chart-contractor-amount" class="chart-container"></div>
+        </div>
+
+        <!-- Row 4 -->
+        <div class="chart-card">
+            <div id="chart-area-amount" class="chart-container"></div>
+        </div>
+
+        <div class="chart-card">
+            <div id="chart-category-amount" class="chart-container"></div>
+        </div>
             </div>
         </div>
     `).appendTo(page.main);
@@ -355,217 +376,628 @@ frappe.pages['nmr2'].on_page_load = function(wrapper) {
             show_drilldown_dialog(`Amount Breakdown Details: ${contractor_name}`, main_drilldown_cols, filtered);
         });
 
-        // 2. Category Pie
-        let chart2 = get_or_init_chart('chart-category');
-        chart2.setOption({
-            title: { text: 'Total Hours by Category', left: 'center' },
-            tooltip: { trigger: 'item', formatter: '{b}: {c} Hours ({d}%)' },
-            legend: { top: 'bottom' },
-            series: [{ type: 'pie', radius: ['40%', '70%'], data: Object.keys(by_category).map(k => ({ name: k, value: by_category[k].toFixed(2) })) }]
-        }, true);
+       // 2. Total Amount by Category (Pie Chart)
+let amount_by_category = {};
 
-        chart2.off('click');
-        chart2.on('click', function (params) {
-            let category_name = params.name;
-            let filtered = data.filter(d => (d.nmr_category || 'Uncategorized') === category_name);
-            show_drilldown_dialog(`Category Details: ${category_name}`, main_drilldown_cols, filtered);
+data.forEach(row => {
+    let category = row.nmr_category || 'Uncategorized';
+
+    if (!amount_by_category[category]) {
+        amount_by_category[category] = 0;
+    }
+
+    amount_by_category[category] += flt(row.total_amount);
+});
+
+let chart2 = get_or_init_chart('chart-category');
+
+chart2.setOption({
+    title: {
+        text: 'Total Amount by Category',
+        left: 'center'
+    },
+    tooltip: {
+        trigger: 'item',
+        formatter: function(params) {
+            return params.name + ': ₹' +
+                flt(params.value).toLocaleString('en-IN', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                }) +
+                ' (' + params.percent + '%)';
+        }
+    },
+    legend: {
+        top: 'bottom',
+        type: 'scroll'
+    },
+    series: [{
+        name: 'Total Amount',
+        type: 'pie',
+        radius: ['40%', '70%'],
+        avoidLabelOverlap: true,
+        label: {
+            show: true,
+            formatter: '{b}: {d}%'
+        },
+        data: Object.keys(amount_by_category).map(category => ({
+            name: category,
+            value: amount_by_category[category].toFixed(2)
+        }))
+    }]
+}, true);
+
+// Drill-down on pie slice click
+chart2.off('click');
+
+chart2.on('click', function(params) {
+    let category_name = params.name;
+
+    let filtered = data.filter(row =>
+        (row.nmr_category || 'Uncategorized') === category_name
+    );
+
+    show_drilldown_dialog(
+        `Total Amount Details: ${category_name}`,
+        main_drilldown_cols,
+        filtered
+    );
+});
+
+        // 3. Total Amount by Nature of Work
+let by_nature_of_work = {};
+
+data.forEach(row => {
+    let nature = row.nature_of_work || 'Unspecified';
+
+    if (!by_nature_of_work[nature]) {
+        by_nature_of_work[nature] = 0;
+    }
+
+    by_nature_of_work[nature] += flt(row.total_amount);
+});
+
+let chart3 = get_or_init_chart('chart-nature-amount');
+
+let natures = Object.keys(by_nature_of_work).sort(
+    (a, b) => by_nature_of_work[b] - by_nature_of_work[a]
+);
+
+chart3.setOption({
+    title: {
+        text: 'Total Amount by Nature of Work',
+        left: 'center'
+    },
+    tooltip: {
+        trigger: 'axis',
+        axisPointer: {
+            type: 'shadow'
+        },
+        valueFormatter: value =>
+            '₹' + flt(value).toLocaleString('en-IN', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            })
+    },
+    grid: {
+        left: '5%',
+        right: '8%',
+        bottom: '20%',
+        containLabel: true
+    },
+    xAxis: {
+        type: 'category',
+        data: natures,
+        axisLabel: {
+            rotate: 25,
+            interval: 0
+        }
+    },
+    yAxis: {
+        type: 'value',
+        name: 'Total Amount (₹)',
+        axisLabel: {
+            formatter: value => '₹' + value.toLocaleString('en-IN')
+        }
+    },
+    series: [{
+        name: 'Total Amount',
+        type: 'bar',
+        itemStyle: {
+            color: '#3498db',
+            borderRadius: [5, 5, 0, 0]
+        },
+        label: {
+            show: true,
+            position: 'top',
+            formatter: params =>
+                '₹' + flt(params.value).toLocaleString('en-IN', {
+                    maximumFractionDigits: 2
+                })
+        },
+        data: natures.map(nature => ({
+            value: by_nature_of_work[nature].toFixed(2),
+            itemStyle: {
+                color: '#3498db'
+            }
+        }))
+    }]
+}, true);
+
+// Drill-down when a bar is clicked
+chart3.off('click');
+
+chart3.on('click', function(params) {
+    let nature = params.name;
+
+    let filtered = data.filter(row =>
+        (row.nature_of_work || 'Unspecified') === nature
+    );
+
+    show_drilldown_dialog(
+        `Total Amount Details: ${nature}`,
+        main_drilldown_cols,
+        filtered
+    );
+});
+    }
+
+    // ==========================================
+// TAB 2: SUMMARY REPORT - 8 CHARTS
+// Manpower + Total Amount Only
+// ==========================================
+
+function render_summary_charts(data) {
+
+    let by_date_people = {};
+    let by_date_amount = {};
+
+    let by_project_people = {};
+    let by_project_amount = {};
+
+    let by_category_people = {};
+    let by_category_amount = {};
+
+    let by_contractor_amount = {};
+    let by_area_amount = {};
+
+    // ------------------------------------------
+    // Aggregate data
+    // ------------------------------------------
+
+    data.forEach(row => {
+
+        let date = row.date || 'Unknown';
+        let project = row.project || 'Unknown Project';
+        let category = row.nmr_category || 'Uncategorized';
+        let contractor = row.contractor || 'Unknown Contractor';
+        let area = row.required_area || 'Unassigned Area';
+
+        let people = flt(row.number_of_people);
+        let amount = flt(row.total_amount);
+
+        // 1. Daily manpower
+        by_date_people[date] =
+            (by_date_people[date] || 0) + people;
+
+        // 2. Daily amount
+        by_date_amount[date] =
+            (by_date_amount[date] || 0) + amount;
+
+        // 3. Manpower by project
+        by_project_people[project] =
+            (by_project_people[project] || 0) + people;
+
+        // 4. Amount by project
+        by_project_amount[project] =
+            (by_project_amount[project] || 0) + amount;
+
+        // 5. Manpower by labor category
+        by_category_people[category] =
+            (by_category_people[category] || 0) + people;
+
+        // 6. Amount by contractor
+        by_contractor_amount[contractor] =
+            (by_contractor_amount[contractor] || 0) + amount;
+
+        // 7. Amount by required area
+        by_area_amount[area] =
+            (by_area_amount[area] || 0) + amount;
+
+        // 8. Amount by labor category
+        by_category_amount[category] =
+            (by_category_amount[category] || 0) + amount;
+    });
+
+    // ------------------------------------------
+    // Drilldown columns
+    // ------------------------------------------
+
+    const summary_cols = [
+        { label: 'Date', fieldname: 'date' },
+        { label: 'Project', fieldname: 'project' },
+        { label: 'Required Area', fieldname: 'required_area' },
+        { label: 'Contractor', fieldname: 'contractor' },
+        { label: 'Labor Category', fieldname: 'nmr_category' },
+        { label: 'People', fieldname: 'number_of_people' },
+        { label: 'Total Amount', fieldname: 'total_amount' }
+    ];
+
+    // ------------------------------------------
+    // Common helpers
+    // ------------------------------------------
+
+    function format_amount(value) {
+        return '₹' + flt(value).toLocaleString('en-IN', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+    }
+
+    function sorted_entries(obj) {
+        return Object.keys(obj)
+            .map(name => ({
+                name: name,
+                value: obj[name]
+            }))
+            .sort((a, b) => b.value - a.value);
+    }
+
+    function show_group_details(title, field, value) {
+        let filtered = data.filter(row => {
+            let actual = row[field];
+
+            if (!actual) {
+                if (field === 'project') actual = 'Unknown Project';
+                else if (field === 'nmr_category') actual = 'Uncategorized';
+                else if (field === 'contractor') actual = 'Unknown Contractor';
+                else if (field === 'required_area') actual = 'Unassigned Area';
+                else if (field === 'date') actual = 'Unknown';
+            }
+
+            return actual === value;
         });
 
-        // 3. Regular vs OT Stacked
-        let chart3 = get_or_init_chart('chart-hours');
-        chart3.setOption({
-            title: { text: 'Regular vs OT Hours', left: 'center' },
-            tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-            legend: { top: 'bottom' },
-            grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
-            xAxis: { type: 'category', data: contractors, axisLabel: { rotate: 15 } },
-            yAxis: { type: 'value', name: 'Hours' },
-            series: [
-                { name: 'Regular', type: 'bar', stack: 'total', itemStyle: { color: '#2ecc71' }, data: contractors.map(c => by_contractor[c].reg_hours.toFixed(2)) },
-                { name: 'OT', type: 'bar', stack: 'total', itemStyle: { color: '#e74c3c', borderRadius: [4, 4, 0, 0] }, data: contractors.map(c => by_contractor[c].ot_hours.toFixed(2)) }
-            ]
+        show_drilldown_dialog(title, summary_cols, filtered);
+    }
+
+    function set_bar_chart(dom_id, title, entries, metric_name,
+                           color, axis_name, fieldname, is_amount) {
+
+        let chart = get_or_init_chart(dom_id);
+
+        chart.setOption({
+            title: {
+                text: title,
+                left: 'center'
+            },
+
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: {
+                    type: 'shadow'
+                },
+                valueFormatter: value =>
+                    is_amount
+                        ? format_amount(value)
+                        : flt(value).toLocaleString('en-IN')
+            },
+
+            grid: {
+                left: '5%',
+                right: '8%',
+                bottom: '20%',
+                containLabel: true
+            },
+
+            xAxis: {
+                type: 'category',
+                data: entries.map(item => item.name),
+                axisLabel: {
+                    rotate: 25,
+                    interval: 0
+                }
+            },
+
+            yAxis: {
+                type: 'value',
+                name: axis_name,
+                axisLabel: {
+                    formatter: value =>
+                        is_amount
+                            ? '₹' + value.toLocaleString('en-IN')
+                            : value
+                }
+            },
+
+            series: [{
+                name: metric_name,
+                type: 'bar',
+                barMaxWidth: 55,
+                itemStyle: {
+                    color: color,
+                    borderRadius: [5, 5, 0, 0]
+                },
+                label: {
+                    show: true,
+                    position: 'top',
+                    formatter: params =>
+                        is_amount
+                            ? format_amount(params.value)
+                            : flt(params.value).toLocaleString('en-IN')
+                },
+                data: entries.map(item => item.value)
+            }]
+
         }, true);
 
-        chart3.off('click');
-        chart3.on('click', function (params) {
-            let contractor_name = params.name;
-            let filtered = data.filter(d => (d.contractor || 'Unknown') === contractor_name);
-            show_drilldown_dialog(`Hours Details: ${contractor_name}`, main_drilldown_cols, filtered);
+        chart.off('click');
+
+        chart.on('click', function(params) {
+            show_group_details(
+                title + ': ' + params.name,
+                fieldname,
+                params.name
+            );
         });
     }
 
     // ==========================================
-    // TAB 2 CHARTS (Summary Report) + DRILLDOWN
+    // CHART 1: DAILY MANPOWER TREND
     // ==========================================
-    function render_summary_charts(data) {
-        let by_date = {}; 
-        let by_date_hours = {}; 
-        let by_area = {}; 
-        let by_area_people = {};
-        let by_category = {}; 
-        let by_contractor_manpower = {}; 
-        let by_contractor_ot = {};
-        
-        // For Advanced Stacked Charts
-        let all_contractors = new Set();
-        let all_categories = new Set();
-        let by_area_contractor = {}; // Area -> Contractor -> Hours
-        let by_date_category = {}; // Date -> Category -> People
 
-        data.forEach(row => {
-            let dt = row.date || 'Unknown';
-            let area = row.required_area || 'Unassigned Area';
-            let cat = row.nmr_category || 'Uncategorized';
-            let contractor = row.contractor || 'Unknown';
-            let people = flt(row.number_of_people);
-            let total_hrs = flt(row.total_hours);
-            let ot_hrs = flt(row.ot_hours);
+    let dates = Object.keys(by_date_people).sort();
 
-            // 1 & 5. Dates
-            if (!by_date[dt]) by_date[dt] = 0;
-            by_date[dt] += people;
-            
-            if (!by_date_hours[dt]) by_date_hours[dt] = { total: 0, ot: 0 };
-            by_date_hours[dt].total += total_hrs;
-            by_date_hours[dt].ot += ot_hrs;
+    let chart1 = get_or_init_chart('chart-daily-manpower');
 
-            // 2 & 7. Areas
-            if (!by_area[area]) by_area[area] = 0;
-            by_area[area] += total_hrs;
+    chart1.setOption({
+        title: {
+            text: 'Daily Manpower Trend',
+            left: 'center'
+        },
 
-            if (!by_area_people[area]) by_area_people[area] = 0;
-            by_area_people[area] += people;
+        tooltip: {
+            trigger: 'axis'
+        },
 
-            // 3. Categories
-            if (!by_category[cat]) by_category[cat] = 0;
-            by_category[cat] += total_hrs;
+        grid: {
+            left: '8%',
+            right: '5%',
+            bottom: '15%',
+            containLabel: true
+        },
 
-            // 4 & 6. Contractor OT & Manpower
-            if (!by_contractor_ot[contractor]) by_contractor_ot[contractor] = 0;
-            by_contractor_ot[contractor] += ot_hrs;
+        xAxis: {
+            type: 'category',
+            data: dates
+        },
 
-            if (!by_contractor_manpower[contractor]) by_contractor_manpower[contractor] = 0;
-            by_contractor_manpower[contractor] += people;
+        yAxis: {
+            type: 'value',
+            name: 'People'
+        },
 
-            // 8. Area x Contractor (Stacked)
-            all_contractors.add(contractor);
-            if (!by_area_contractor[area]) by_area_contractor[area] = {};
-            if (!by_area_contractor[area][contractor]) by_area_contractor[area][contractor] = 0;
-            by_area_contractor[area][contractor] += total_hrs;
+        series: [{
+            name: 'People',
+            type: 'line',
+            smooth: true,
+            symbolSize: 7,
+            areaStyle: {
+                opacity: 0.2
+            },
+            itemStyle: {
+                color: '#8e44ad'
+            },
+            data: dates.map(date => by_date_people[date])
+        }]
 
-            // 9. Date x Category (Stacked)
-            all_categories.add(cat);
-            if (!by_date_category[dt]) by_date_category[dt] = {};
-            if (!by_date_category[dt][cat]) by_date_category[dt][cat] = 0;
-            by_date_category[dt][cat] += people;
-        });
+    }, true);
 
-        const sum_cols = [
-            {label: 'Date', fieldname: 'date'}, {label: 'Project', fieldname: 'project'},
-            {label: 'Contractor', fieldname: 'contractor'}, {label: 'Area', fieldname: 'required_area'},
-            {label: 'Category', fieldname: 'nmr_category'}, {label: 'People', fieldname: 'number_of_people'},
-            {label: 'Total Hours', fieldname: 'total_hours'}, {label: 'OT Hours', fieldname: 'ot_hours'}
-        ];
+    chart1.off('click');
 
-        // 1. Daily Manpower Trend (Line)
-        let chart1 = get_or_init_chart('chart-daily-manpower');
-        let sorted_dates = Object.keys(by_date).sort();
-        chart1.setOption({
-            title: { text: 'Daily Manpower Trend', left: 'center' }, tooltip: { trigger: 'axis' },
-            grid: { left: '10%', right: '5%', bottom: '15%', containLabel: true },
-            xAxis: { type: 'category', data: sorted_dates, boundaryGap: false }, yAxis: { type: 'value', name: 'People' },
-            series: [{ name: 'People', type: 'line', smooth: true, areaStyle: {}, itemStyle: { color: '#9b59b6' }, data: sorted_dates.map(d => by_date[d]) }]
-        }, true);
-        chart1.off('click'); chart1.on('click', p => show_drilldown_dialog(`Date: ${p.name}`, sum_cols, data.filter(d => (d.date||'Unknown') === p.name)));
+    chart1.on('click', function(params) {
+        show_group_details(
+            'Daily Manpower: ' + params.name,
+            'date',
+            params.name
+        );
+    });
 
-        // 2. Daily Hours Logged (Line/Bar)
-        let chart2 = get_or_init_chart('chart-daily-hours');
-        chart2.setOption({
-            title: { text: 'Daily Hours (Total vs OT)', left: 'center' }, tooltip: { trigger: 'axis' }, legend: { top: 'bottom' },
-            grid: { left: '10%', right: '5%', bottom: '15%', containLabel: true },
-            xAxis: { type: 'category', data: sorted_dates }, yAxis: { type: 'value', name: 'Hours' },
-            series: [
-                { name: 'Total Hours', type: 'bar', itemStyle: { color: '#3498db' }, data: sorted_dates.map(d => by_date_hours[d].total.toFixed(2)) },
-                { name: 'OT Hours', type: 'line', itemStyle: { color: '#e74c3c' }, data: sorted_dates.map(d => by_date_hours[d].ot.toFixed(2)) }
-            ]
-        }, true);
-        chart2.off('click'); chart2.on('click', p => show_drilldown_dialog(`Hours on ${p.name}`, sum_cols, data.filter(d => (d.date||'Unknown') === p.name)));
+    // ==========================================
+    // CHART 2: DAILY TOTAL AMOUNT
+    // ==========================================
 
-        // 3. Total Hours by Area (Bar)
-        let chart3 = get_or_init_chart('chart-area-hours');
-        let areas = Object.keys(by_area).sort((a,b) => by_area[b] - by_area[a]);
-        chart3.setOption({
-            title: { text: 'Total Hours by Area', left: 'center' }, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-            grid: { left: '5%', right: '5%', bottom: '25%', containLabel: true },
-            xAxis: { type: 'category', data: areas, axisLabel: { rotate: 30 } }, yAxis: { type: 'value', name: 'Hours' },
-            series: [{ name: 'Hours', type: 'bar', itemStyle: { color: '#34495e' }, data: areas.map(a => by_area[a].toFixed(2)) }]
-        }, true);
-        chart3.off('click'); chart3.on('click', p => show_drilldown_dialog(`Area: ${p.name}`, sum_cols, data.filter(d => (d.required_area||'Unassigned') === p.name)));
+    let chart2 = get_or_init_chart('chart-daily-amount');
 
-        // 4. Labor Allocation by Area (Pie)
-        let chart4 = get_or_init_chart('chart-area-allocation');
-        chart4.setOption({
-            title: { text: 'Labor Allocation by Area', left: 'center' }, tooltip: { trigger: 'item', formatter: '{b}: {c} People ({d}%)' },
-            legend: { top: 'bottom' },
-            series: [{ type: 'pie', radius: ['40%', '70%'], data: areas.map(a => ({ name: a, value: by_area_people[a] })) }]
-        }, true);
-        chart4.off('click'); chart4.on('click', p => show_drilldown_dialog(`Labor in ${p.name}`, sum_cols, data.filter(d => (d.required_area||'Unassigned') === p.name)));
+    chart2.setOption({
+        title: {
+            text: 'Daily Total Amount',
+            left: 'center'
+        },
 
-        // 5. Labor Distribution by Category (Bar)
-        let chart5 = get_or_init_chart('chart-labor-distribution');
-        let cats = Object.keys(by_category).sort((a,b) => by_category[b] - by_category[a]);
-        chart5.setOption({
-            title: { text: 'Labor Output by Category', left: 'center' }, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-            grid: { left: '5%', right: '5%', bottom: '25%', containLabel: true },
-            xAxis: { type: 'category', data: cats, axisLabel: { rotate: 30 } }, yAxis: { type: 'value', name: 'Hours' },
-            series: [{ name: 'Hours', type: 'bar', itemStyle: { color: '#16a085' }, data: cats.map(c => by_category[c].toFixed(2)) }]
-        }, true);
-        chart5.off('click'); chart5.on('click', p => show_drilldown_dialog(`Category: ${p.name}`, sum_cols, data.filter(d => (d.nmr_category||'Uncat') === p.name)));
+        tooltip: {
+            trigger: 'axis',
+            valueFormatter: value => format_amount(value)
+        },
 
-        // 6. Manpower by Contractor (Bar)
-        let chart6 = get_or_init_chart('chart-manpower-contractor');
-        let sorted_contractors = Object.keys(by_contractor_manpower).sort((a,b) => by_contractor_manpower[b] - by_contractor_manpower[a]);
-        chart6.setOption({
-            title: { text: 'Manpower by Contractor', left: 'center' }, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-            grid: { left: '5%', right: '5%', bottom: '25%', containLabel: true },
-            xAxis: { type: 'category', data: sorted_contractors, axisLabel: { rotate: 30 } }, yAxis: { type: 'value', name: 'People' },
-            series: [{ name: 'People', type: 'bar', itemStyle: { color: '#f39c12' }, data: sorted_contractors.map(c => by_contractor_manpower[c]) }]
-        }, true);
-        chart6.off('click'); chart6.on('click', p => show_drilldown_dialog(`Contractor: ${p.name}`, sum_cols, data.filter(d => (d.contractor||'Unknown') === p.name)));
+        grid: {
+            left: '8%',
+            right: '5%',
+            bottom: '15%',
+            containLabel: true
+        },
 
-        // 7. Overtime Share by Contractor (Pie)
-        let chart7 = get_or_init_chart('chart-ot-share');
-        let ot_data = sorted_contractors.filter(k => by_contractor_ot[k] > 0).map(k => ({ name: k, value: by_contractor_ot[k].toFixed(2) }));
-        chart7.setOption({
-            title: { text: 'Overtime Share by Contractor', left: 'center' }, tooltip: { trigger: 'item', formatter: '{b}: {c} OT Hours ({d}%)' },
-            legend: { top: 'bottom' }, series: [{ type: 'pie', radius: ['40%', '70%'], data: ot_data }]
-        }, true);
-        chart7.off('click'); chart7.on('click', p => show_drilldown_dialog(`OT for ${p.name}`, sum_cols, data.filter(d => (d.contractor||'Unknown') === p.name && flt(d.ot_hours) > 0)));
+        xAxis: {
+            type: 'category',
+            data: dates
+        },
 
-        // 8. Area Output by Contractor (Stacked Bar)
-        let chart8 = get_or_init_chart('chart-area-contractor-stacked');
-        let cont_arr = Array.from(all_contractors);
-        let series_cont = cont_arr.map(c => {
-            return { name: c, type: 'bar', stack: 'total', data: areas.map(a => (by_area_contractor[a][c] || 0).toFixed(2)) };
-        });
-        chart8.setOption({
-            title: { text: 'Area Output by Contractor (Total Hours)', left: 'center' }, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-            legend: { top: 'bottom' }, grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
-            xAxis: { type: 'category', data: areas, axisLabel: { rotate: 15 } }, yAxis: { type: 'value', name: 'Hours' }, series: series_cont
-        }, true);
-        chart8.off('click'); chart8.on('click', p => show_drilldown_dialog(`Area: ${p.name}, Contractor: ${p.seriesName}`, sum_cols, data.filter(d => (d.required_area||'Unassigned') === p.name && (d.contractor||'Unknown') === p.seriesName)));
+        yAxis: {
+            type: 'value',
+            name: 'Amount (₹)',
+            axisLabel: {
+                formatter: value =>
+                    '₹' + value.toLocaleString('en-IN')
+            }
+        },
 
-        // 9. Daily Output by Category (Stacked Bar)
-        let chart9 = get_or_init_chart('chart-daily-category-stacked');
-        let cat_arr = Array.from(all_categories);
-        let series_cat = cat_arr.map(c => {
-            return { name: c, type: 'bar', stack: 'total', data: sorted_dates.map(d => (by_date_category[d][c] || 0)) };
-        });
-        chart9.setOption({
-            title: { text: 'Daily Labor Output by Category (People)', left: 'center' }, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-            legend: { top: 'bottom' }, grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
-            xAxis: { type: 'category', data: sorted_dates }, yAxis: { type: 'value', name: 'People' }, series: series_cat
-        }, true);
-        chart9.off('click'); chart9.on('click', p => show_drilldown_dialog(`Date: ${p.name}, Category: ${p.seriesName}`, sum_cols, data.filter(d => (d.date||'Unknown') === p.name && (d.nmr_category||'Uncat') === p.seriesName)));
-    }
+        series: [{
+            name: 'Total Amount',
+            type: 'line',
+            smooth: true,
+            symbolSize: 7,
+            areaStyle: {
+                opacity: 0.15
+            },
+            itemStyle: {
+                color: '#e67e22'
+            },
+            data: dates.map(date => by_date_amount[date])
+        }]
+
+    }, true);
+
+    chart2.off('click');
+
+    chart2.on('click', function(params) {
+        show_group_details(
+            'Daily Amount: ' + params.name,
+            'date',
+            params.name
+        );
+    });
+
+    // ==========================================
+    // CHART 3: MANPOWER BY PROJECT
+    // ==========================================
+
+    set_bar_chart(
+        'chart-project-manpower',
+        'Manpower by Project',
+        sorted_entries(by_project_people),
+        'People',
+        '#3498db',
+        'People',
+        'project',
+        false
+    );
+
+    // ==========================================
+    // CHART 4: TOTAL AMOUNT BY PROJECT
+    // ==========================================
+
+    set_bar_chart(
+        'chart-project-amount',
+        'Total Amount by Project',
+        sorted_entries(by_project_amount),
+        'Total Amount',
+        '#16a085',
+        'Amount (₹)',
+        'project',
+        true
+    );
+
+    // ==========================================
+    // CHART 5: MANPOWER BY LABOR CATEGORY
+    // ==========================================
+
+    set_bar_chart(
+        'chart-category-manpower',
+        'Manpower by Labor Category',
+        sorted_entries(by_category_people),
+        'People',
+        '#9b59b6',
+        'People',
+        'nmr_category',
+        false
+    );
+
+    // ==========================================
+    // CHART 6: TOTAL AMOUNT BY CONTRACTOR
+    // ==========================================
+
+    set_bar_chart(
+        'chart-contractor-amount',
+        'Total Amount by Contractor',
+        sorted_entries(by_contractor_amount),
+        'Total Amount',
+        '#e74c3c',
+        'Amount (₹)',
+        'contractor',
+        true
+    );
+
+    // ==========================================
+    // CHART 7: TOTAL AMOUNT BY REQUIRED AREA
+    // ==========================================
+
+    set_bar_chart(
+        'chart-area-amount',
+        'Total Amount by Required Area',
+        sorted_entries(by_area_amount),
+        'Total Amount',
+        '#34495e',
+        'Amount (₹)',
+        'required_area',
+        true
+    );
+
+    // ==========================================
+    // CHART 8: TOTAL AMOUNT BY LABOR CATEGORY
+    // ==========================================
+
+    let category_amount_entries =
+        sorted_entries(by_category_amount);
+
+    let chart8 = get_or_init_chart('chart-category-amount');
+
+    chart8.setOption({
+        title: {
+            text: 'Total Amount by Labor Category',
+            left: 'center'
+        },
+
+        tooltip: {
+            trigger: 'item',
+            formatter: function(params) {
+                return params.name +
+                    '<br>Total Amount: ' + format_amount(params.value) +
+                    '<br>Share: ' + params.percent + '%';
+            }
+        },
+
+        legend: {
+            top: 'bottom',
+            type: 'scroll'
+        },
+
+        series: [{
+            name: 'Total Amount',
+            type: 'pie',
+            radius: ['40%', '68%'],
+            avoidLabelOverlap: true,
+
+            label: {
+                show: true,
+                formatter: '{b}: {d}%'
+            },
+
+            data: category_amount_entries.map(item => ({
+                name: item.name,
+                value: item.value
+            }))
+        }]
+
+    }, true);
+
+    chart8.off('click');
+
+    chart8.on('click', function(params) {
+        show_group_details(
+            'Total Amount by Labor Category: ' + params.name,
+            'nmr_category',
+            params.name
+        );
+    });
+}
 };
